@@ -1,0 +1,46 @@
+     |                |                 ; Please note, that all numbers in this file are hexadecimal.
+     |                |                 ; Also, treat the mnemonics as comments. If you are using this
+     |                |                 ; to defend against some sort of attack, you should only trust
+     |                |                 ; the hex. This is why an actual assembler is the first and only
+     |                |                 ; goal right now.
+7C00 | EA 05 7C 00 00 | JMP 0:7C05      ; Some BIOSes jump to 0000:7C00, some jump to 07C0:0000. While
+     |                |                 ; this results in the  physical address, this difference can,
+     |                |                 ; and will cause chaos.
+7C05 | 33 C9          | XOR CX, CX      ; We use CX here to use it later as a parameter
+7C07 | BD 00 7C       | MOV BP, 7C00
+7C0A | 89 EC          | MOV SP, BP      ; 7C00-7C0F is used as the disk packet, the stack is just below it
+7C0C | 8E D1          | MOV SS, CX      ; Set up the segments
+7C0E | 8E D9          | MOV DS, CX
+
+7DA3 | 50             | PUSH AX         ; Print hex byte in AL
+7DA4 | C0 E8 04       | SHR AL, 04
+7DA7 | E8 03 00       | CALL 7DAD
+7DAA | 58             | POP AX
+7DAB | 24 0F          | AND AL, 0F      ; fallthrough
+7DAD | 04 30          | ADD AL, 30      ; Print hex digit in AL - add '0'
+7DAF | 3C 39          | CMP AL, 39      ; compare to '9'
+7DB1 | 76 02          | JBE 7DB5
+7DB3 | 04 07          | ADD AL, 07      ; add 'A' - '0' - 0A, fallthrough
+7DB5 | 60             | PUSHA           ; Print character in AL
+7DB6 | 33 DB          | XOR BX, BX
+7DB8 | B4 0E          | MOV AH, 0E
+7DBA | CD 10          | INT 10
+7DBC | 61             | POPA
+7DBD | C3             | RET
+7DBE | 00 00 00 00    | Partition 1     ; And here is where the partition table starts. Please note,
+7DC2 | 00 00 00 00    |                 ; that these are only dummy bytes, to be replaced when
+7DC6 | 00 00 00 00    |                 ; writing to a disk or a disk image.
+7DCA | 00 00 00 00    |
+7DCE | 00 00 00 00    | Partition 2
+7DD2 | 00 00 00 00    |
+7DD6 | 00 00 00 00    |
+7DDA | 00 00 00 00    |
+7DDE | 00 00 00 00    | Partition 3
+7DE2 | 00 00 00 00    |
+7DE6 | 00 00 00 00    |
+7DEA | 00 00 00 00    |
+7DEE | 00 00 00 00    | Partition 4
+7DF2 | 00 00 00 00    |
+7DF6 | 00 00 00 00    |
+7DFA | 00 00 00 00    |
+7DFE | 55 AA          | The boot signature
