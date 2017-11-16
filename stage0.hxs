@@ -1,107 +1,118 @@
-     |                |                 ; Please note, that all numbers in this file are hexadecimal.
-     |                |                 ; Also, treat the mnemonics as comments. If you are using this
-     |                |                 ; to defend against some sort of attack, you should only trust
-     |                |                 ; the hex. This is why an assembler is the first and only goal
-     |                |                 ; right now.
-7C00 | EA 05 7C 00 00 | JMP 0:7C05      ; Some BIOSes jump to 0000:7C00, some jump to 07C0:0000. While
-     |                |                 ; this results in the  physical address, this difference can,
-     |                |                 ; and will cause chaos.
-7C05 | FA             | CLI             ; Disable interrupts when setting up the stack
-7C06 | 33 C9          | XOR CX, CX      ; We use CX here to use it later as a parameter
-7C08 | BD 00 7C       | MOV BP, 7C00
-7C0B | 89 EC          | MOV SP, BP      ; 7C00-7C0F is used as the disk packet, the stack is just below it
-7C0D | 8E D1          | MOV SS, CX      ; Set up the segments
-7C0F | 8E D9          | MOV DS, CX
-7C11 | 8E C1          | MOV ES, CX
-7C13 | FB             | STI
-7C14 | B4 0F          | MOV AH, 0F      ; Clear the screen
-7C16 | CD 10          | INT 10
-7C18 | B4 00          | MOV AH, 00
-7C1A | CD 10          | INT 10
-7C1C | B0 D3          | MOV AL, DE
-7C1E | E8 82 01       | CALL 7DA3
-7C21 | F4 EB FD       | A: HLT;JMP A
-     |0000000000000000|
-     |0000000000000000|
-     |0000000000000000|
-     |0000000000000000|
-     |0000000000000000|
-     |0000000000000000|
-     |0000000000000000|
-     |0000000000000000|
-     |0000000000000000|
-     |0000000000000000|
-     |0000000000000000|
-     |0000000000000000|
-     |0000000000000000|
-     |0000000000000000|
-     |0000000000000000|
-     |0000000000000000|
-     |0000000000000000|
-     |0000000000000000|
-     |0000000000000000|
-     |0000000000000000|
-     |0000000000000000|
-     |0000000000000000|
-     |0000000000000000|
-     |0000000000000000|
-     |0000000000000000|
-     |0000000000000000|
-     |0000000000000000|
-     |0000000000000000|
-     |0000000000000000|
-     |0000000000000000|
-     |0000000000000000|
-     |0000000000000000|
-     |0000000000000000|
-     |0000000000000000|
-     |0000000000000000|
-     |0000000000000000|
-     |0000000000000000|
-     |0000000000000000|
-     |0000000000000000|
-     |0000000000000000|
-     |0000000000000000|
-     |0000000000000000|
-     |0000000000000000|
-     |0000000000000000|
-     |0000000000000000|
-     |0000000000000000|
-     |0000000000000000|
-     |00000000000000|
-     |                |
-7DA3 | 50             | PUSH AX         ; Print hex byte in AL
-7DA4 | C0 E8 04       | SHR AL, 04
-7DA7 | E8 03 00       | CALL 7DAD
-7DAA | 58             | POP AX
-7DAB | 24 0F          | AND AL, 0F
-     |                |                 ; fallthrough
-7DAD | 04 30          | ADD AL, 30      ; Print hex digit in AL - add '0'
-7DAF | 3C 39          | CMP AL, 39      ; compare to '9'
-7DB1 | 76 02          | JBE 7DB5
-7DB3 | 04 07          | ADD AL, 07      ; add 'A' - '0' - 0A
-     |                |                 ; fallthrough
-7DB5 | 60             | PUSHA           ; Print character in AL
-7DB6 | 33 DB          | XOR BX, BX
-7DB8 | B4 0E          | MOV AH, 0E
-7DBA | CD 10          | INT 10
-7DBC | 61             | POPA
-7DBD | C3             | RET
-     |                |
-7DBE | 00 00 00 00    | Partition 1     ; And here is where the partition table starts. Please note,
-7DC2 | 00 00 00 00    |                 ; that these are only dummy bytes, to be replaced when
-7DC6 | 00 00 00 00    |                 ; writing to a disk or a disk image.
-7DCA | 00 00 00 00    |
-7DCE | 00 00 00 00    | Partition 2
-7DD2 | 00 00 00 00    |
-7DD6 | 00 00 00 00    |
-7DDA | 00 00 00 00    |
-7DDE | 00 00 00 00    | Partition 3
-7DE2 | 00 00 00 00    |
-7DE6 | 00 00 00 00    |
-7DEA | 00 00 00 00    |
-7DEE | 00 00 00 00    | Partition 4
-7DF2 | 00 00 00 00    |
-7DF6 | 00 00 00 00    |
-7DFA | 00 00 00 00    |
-7DFE | 55 AA          | The boot signature
+7C00|          |                        ; Please note, that all numbers in this file are hexadecimal.
+7C00|          |                        ; Also, treat the mnemonics as comments. If you are using this
+7C00|          |                        ; to defend against some sort of attack, you should only trust
+7C00|          |                        ; the hex. This is why an assembler is the first and only goal
+7C00|          |                        ; right now.
+7C00|EA057C0000| JMP 0:7C05             ; Some BIOSes jump to 0000:7C00, some jump to 07C0:0000. While
+7C05|          |                        ; this results in the  physical address, this difference can,
+7C05|          |                        ; and will cause chaos.
+7C05|FA        |        CLI             ; Disable interrupts when setting up the stack
+7C06|33C9      |        XOR CX, CX      ; We use CX here to use it later as a parameter
+7C08|BD007C    |        MOV BP, 7C00
+7C0B|89EC      |        MOV SP, BP      ; 7C00-7C0F is used as the disk packet, the stack is just below it
+7C0D|8ED1      |        MOV SS, CX      ; Set up the segments
+7C0F|8ED9      |        MOV DS, CX
+7C11|8EC1      |        MOV ES, CX
+7C13|FB        |        STI
+7C14|B40F      |        MOV AH, 0F      ; Clear the screen
+7C16|CD10      |        INT 10
+7C18|B400      |        MOV AH, 00
+7C1A|CD10      |        INT 10
+7C1C|E96801    |        JMP DiskError
+7C1F|0000000000000000|
+    |0000000000000000|
+    |0000000000000000|
+    |0000000000000000|
+    |0000000000000000|
+    |0000000000000000|
+    |0000000000000000|
+    |0000000000000000|
+    |0000000000000000|
+    |0000000000000000|
+    |0000000000000000|
+    |0000000000000000|
+    |0000000000000000|
+    |0000000000000000|
+    |0000000000000000|
+    |0000000000000000|
+    |0000000000000000|
+    |0000000000000000|
+    |0000000000000000|
+    |0000000000000000|
+    |0000000000000000|
+    |0000000000000000|
+    |0000000000000000|
+    |0000000000000000|
+    |0000000000000000|
+    |0000000000000000|
+    |0000000000000000|
+    |0000000000000000|
+    |0000000000000000|
+    |0000000000000000|
+    |0000000000000000|
+    |0000000000000000|
+    |0000000000000000|
+    |0000000000000000|
+    |0000000000000000|
+    |0000000000000000|
+    |0000000000000000|
+    |0000000000000000|
+    |0000000000000000|
+    |0000000000000000|
+    |0000000000000000|
+    |0000000000000000|
+    |0000000000000000|
+    |0000000000000000|
+    |0000000000000000|
+7D87|          | DiskError:
+7D87|BE987D    |        MOV SI, .msg
+7D8A|AC        | .loop: LODSB
+7D8B|08C0      |        OR AL, AL
+7D8D|7405      |        JZ .end
+7D8F|E82300    |        CALL 7DB5
+7D92|EBF6      |        JMP .loop
+7D94|FA        | .end:  CLI
+7D95|F4        | .halt: HLT
+7D96|EBFD      |        JMP .halt
+7D98|          | .msg:
+7D98|4469736B20|        DB 'Disk error',0
+7D9D|6572726F72|
+7DA2|00        |
+7DA3|          | PrintHexByte:
+7DA3|50        |        PUSH AX         ; Print hex byte in AL
+7DA4|C0E804    |        SHR AL, 04
+7DA7|E80300    |        CALL PrintHexDigit
+7DAA|58        |        POP AX
+7DAB|240F      |        AND AL, 0F
+7DAD|          |                        ; fallthrough
+7DAD|          | PrintHexDigit:
+7DAD|0430      |        ADD AL, 30      ; Print hex digit in AL - add '0'
+7DAF|3C39      |        CMP AL, 39      ; compare to '9'
+7DB1|7602      |        JBE PrintChar
+7DB3|0407      |        ADD AL, 07      ; add 'A' - '0' - 0A
+7DB5|          |                        ; fallthrough
+7DB5|          | PrintChar:
+7DB5|60        |        PUSHA           ; Print character in AL
+7DB6|33DB      |        XOR BX, BX
+7DB8|B40E      |        MOV AH, 0E
+7DBA|CD10      |        INT 10
+7DBC|61        |        POPA
+7DBD|C3        |        RET
+7DBE|          |
+7DBE|00000000  | Partition 1            ; And here is where the partition table starts. Please note,
+7DC2|00000000  |                        ; that these are only dummy bytes, to be replaced when
+7DC6|00000000  |                        ; writing to a disk or a disk image.
+7DCA|00000000  |
+7DCE|00000000  | Partition 2
+7DD2|00000000  |
+7DD6|00000000  |
+7DDA|00000000  |
+7DDE|00000000  | Partition 3
+7DE2|00000000  |
+7DE6|00000000  |
+7DEA|00000000  |
+7DEE|00000000  | Partition 4
+7DF2|00000000  |
+7DF6|00000000  |
+7DFA|00000000  |
+7DFE|55AA      | The boot signature
