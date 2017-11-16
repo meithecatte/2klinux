@@ -1,2 +1,2 @@
 #!/bin/sh
-qemu-system-i386 -hda stage0.bin
+qemu-system-i386 -drive format=raw,file=stage0.bin
