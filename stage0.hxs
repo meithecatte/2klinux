@@ -2,9 +2,16 @@
 7C00|          |                        ; Also, treat the mnemonics as comments. If you are using this
 7C00|          |                        ; to defend against some sort of attack, you should only trust
 7C00|          |                        ; the hex. This is why an assembler is the first and only goal
-7C00|          |                        ; right now.
-7C00|EA057C0000| JMP 0:7C05             ; Some BIOSes jump to 0000:7C00, some jump to 07C0:0000. While
-7C05|          |                        ; this results in the  physical address, this difference can,
+7C00|          |                        ; right now. This implements FAT32, with the assumption that
+7C00|          |                        ; sector size is 512 bytes and cluster size is 1 sector. Long
+7C00|          |                        ; file names are not supported. We use a part of the code section
+7C00|          |                        ; as variables after executing it:
+7C00|          | 7C00 - 7C0F  The EDD disk packet
+7C00|          | 7C10 - 7C13  The currently loaded FAT sector (buffer at 8000)
+7C00|          | 7C14 - 7C17  The currently loaded file sector (buffer at 8200)
+7C00|          | 7C18 - 7C1B  The sector of cluster 0
+7C00|EA057C0000|        JMP 0:7C05      ; Some BIOSes jump to 0000:7C00, some jump to 07C0:0000. While
+7C05|          |                        ; this results in the same physical address, this difference can,
 7C05|          |                        ; and will cause chaos.
 7C05|FA        |        CLI             ; Disable interrupts when setting up the stack
 7C06|33C9      |        XOR CX, CX      ; We use CX here to use it later as a parameter
@@ -12,19 +19,29 @@
 7C0B|89EC      |        MOV SP, BP      ; 7C00-7C0F is used as the disk packet, the stack is just below it
 7C0D|8ED1      |        MOV SS, CX      ; Set up the segments
 7C0F|8ED9      |        MOV DS, CX
-7C11|8EC1      |        MOV ES, CX      ; first instruction not overwritten by variables
-7C13|885610    |        MOV [BP+10], DL ; we just finished executing that memory location, but that's fine :P
-7C16|FB        |        STI             ; the BIOS saves the disk number in DL when jumping to 7C00
-7C17|B40F      |        MOV AH, 0F      ; Clear the screen
-7C19|CD10      |        INT 10
-7C1B|B400      |        MOV AH, 00
-7C1D|CD10      |        INT 10
-7C1F|41        |        INC CX            ; Load the VBR of the first partition at 7E00
-7C20|668B86C601|        MOV EAX, [BP+1C6]
+7C11|8EC1      |        MOV ES, CX
+7C13|8816767D  |        MOV [7D76], DL  ; Patch in the disk number the BIOS left for us in DL at the only
+7C17|FB        |        STI             ; place we need it
+7C18|B40F      |        MOV AH, 0F      ; Clear the screen
+7C1A|CD10      |        INT 10
+7C1C|B400      |        MOV AH, 00
+7C1E|CD10      |        INT 10
+7C20|41        |        INC CX            ; Load the VBR of the first partition at 7E00
+7C21|66A1C67D  |        MOV EAX, [7DC6]   ; First partition start LBA
 7C25|33DB      |        XOR BX, BX
 7C27|BF007E    |        MOV DI, 7E00
-7C2A|E82E01    |        CALL DiskRead
-7C2D|EBFE      |
+7C2A|E82F01    |        CALL DiskRead
+7C2D|66A1247E  |        MOV EAX, [7E24]   ; Sectors per FAT
+7C31|6633C9    |        XOR ECX, ECX
+7C34|8A0E107E  |        MOV CL, [7E10]    ; Number of FATs
+7C38|66F7E1    |        MUL ECX
+7C3B|660306C67D|        ADD EAX, [7DC6]
+7C3E|8B0E0E7E  |        MOV CX, [7E0E]
+7C42|49        |        DEC CX
+7C43|49        |        DEC CX
+7C44|6601C8    |        ADD EAX, ECX
+7C47|66894618  |        MOV [BP+18], EAX
+7C4B|EBFE      |        
     |0000000000000000|
     |0000000000000000|
     |0000000000000000|
@@ -58,20 +75,16 @@
     |0000000000000000|
     |0000000000000000|
     |0000000000000000|
-    |0000000000000000|
-    |0000000000000000|
-    |0000000000000000|
-    |0000000000000000|
-    |00000000|
+    |000000000000|
     |          | DiskRead:              ; Read CX sectors at LBA EAX to BX:DI
-7D5B|C746001000|        MOV [BP+00], 0010
-7D60|894E02    |        MOV [BP+02], CX
-7D63|897E04    |        MOV [BP+04], DI
-7D66|895E06    |        MOV [BP+06], BX
-7D69|66894608  |        MOV [BP+08], EAX
-7D6D|6633C0    |        XOR EAX, EAX
-7D70|6689460C  |        MOV [BP+0C], EAX
-7D74|8A5610    |        MOV DL, [BP+10]
+7D5C|C746001000|        MOV [BP+00], 0010
+7D61|894E02    |        MOV [BP+02], CX
+7D64|897E04    |        MOV [BP+04], DI
+7D67|895E06    |        MOV [BP+06], BX
+7D6A|66894608  |        MOV [BP+08], EAX
+7D6E|6633C0    |        XOR EAX, EAX
+7D71|6689460C  |        MOV [BP+0C], EAX
+7D75|B2FF      |        MOV DL, (patched at runtime)
 7D77|B442      |        MOV AH, 42
 7D79|89EE      |        MOV SI, BP
 7D7B|CD13      |        INT 13
