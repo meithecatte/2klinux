@@ -7,14 +7,14 @@
 7C00|          |                        ; file names are not supported. We use a part of the code section
 7C00|          |                        ; as variables after executing it:
 7C00|          | 7C00 - 7C0F  The EDD disk packet
-7C00|          | 7C10 - 7C13  The currently loaded FAT sector (buffer at 8000)
-7C00|          | 7C14 - 7C17  The currently loaded file sector (buffer at 8200)
+7C00|          | 7C10 - 7C13  The first FAT sector
+7C00|          | 7C14 - 7C17  The currently loaded cluster (buffer at 8200)
 7C00|          | 7C18 - 7C1B  The sector of cluster 0
 7C00|EA057C0000|        JMP 0:7C05      ; Some BIOSes jump to 0000:7C00, some jump to 07C0:0000. While
 7C05|          |                        ; this results in the same physical address, this difference can,
 7C05|          |                        ; and will cause chaos.
 7C05|FA        |        CLI             ; Disable interrupts when setting up the stack
-7C06|33C9      |        XOR CX, CX      ; We use CX here to use it later as a parameter
+7C06|33C9      |        XOR CX, CX
 7C08|BD007C    |        MOV BP, 7C00
 7C0B|89EC      |        MOV SP, BP      ; 7C00-7C0F is used as the disk packet, the stack is just below it
 7C0D|8ED1      |        MOV SS, CX      ; Set up the segments
@@ -26,31 +26,24 @@
 7C1A|CD10      |        INT 10
 7C1C|B400      |        MOV AH, 00
 7C1E|CD10      |        INT 10
-7C20|41        |        INC CX            ; Load the VBR of the first partition at 7E00
-7C21|66A1C67D  |        MOV EAX, [7DC6]   ; First partition start LBA
-7C25|33DB      |        XOR BX, BX
-7C27|BF007E    |        MOV DI, 7E00
-7C2A|E82F01    |        CALL DiskRead
-7C2D|66A1247E  |        MOV EAX, [7E24]   ; Sectors per FAT
-7C31|6633C9    |        XOR ECX, ECX
-7C34|8A0E107E  |        MOV CL, [7E10]    ; Number of FATs
-7C38|66F7E1    |        MUL ECX
-7C3B|660306C67D|        ADD EAX, [7DC6]
-7C3E|8B0E0E7E  |        MOV CX, [7E0E]
-7C42|49        |        DEC CX
-7C43|49        |        DEC CX
-7C44|6601C8    |        ADD EAX, ECX
-7C47|66894618  |        MOV [BP+18], EAX
-7C4B|EBFE      |        
-    |0000000000000000|
-    |0000000000000000|
-    |0000000000000000|
-    |0000000000000000|
-    |0000000000000000|
-    |0000000000000000|
-    |0000000000000000|
-    |0000000000000000|
-    |0000000000000000|
+7C20|66A1C67D  |        MOV EAX, [7DC6]   ; First partition start LBA
+7C24|BF007E    |        MOV DI, 7E00
+7C27|E83001    |        CALL DiskReadSegment0
+7C2A|660FB7060E7E|      MOVZX EAX, word[7E0E]
+7C30|660306C67D|        ADD EAX, [7DC6]
+7C35|66894610  |        MOV [BP+10], EAX
+7C39|66A1247E  |        MOV EAX, [7E24]   ; Sectors per FAT
+7C3D|660FB60E107E|      MOVZX ECX, byte[7E10]    ; Number of FATs
+7C43|66F7E1    |        MUL ECX
+7C46|66034610  |        ADD EAX, [BP+10]   ; First FAT sector
+7C4A|6648      |        DEC EAX
+7C4C|6648      |        DEC EAX
+7C4E|66894618  |        MOV [BP+18], EAX
+7C52|6633C0    |        XOR EAX, EAX
+7C55|B002      |        MOV AL, 02         ; testing
+7C57|E8F300    |        CALL ReadCluster
+7C5A|E8CC00    |        CALL ReadNextCluster
+7C5D|0F821F01  |        
     |0000000000000000|
     |0000000000000000|
     |0000000000000000|
@@ -76,9 +69,30 @@
     |0000000000000000|
     |0000000000000000|
     |000000000000|
-    |          | DiskRead:              ; Read CX sectors at LBA EAX to BX:DI
-7D5C|C746001000|        MOV [BP+00], 0010
-7D61|894E02    |        MOV [BP+02], CX
+7D27|          | SetCarryAndReturn:
+7D27|F9        |        STC
+7D28|C3        |        RET
+7D29|          | ReadNextCluster:
+7D29|668B4614  |        MOV EAX, [BP+14]
+7D2D|66C1E807  |        SHR EAX, 07
+7D31|66034610  |        ADD EAX, [BP+10]
+7D35|BF0080    |        MOV DI, 8000
+7D38|E81F00    |        CALL DiskRead
+7D3B|8A5E14    |        MOV BL, [BP+14]
+7D3E|D0E3      |        SHL BL, 1
+7D40|D1E3      |        SHL BX, 1
+7D42|668B01    |        MOV EAX, [BX+DI] ; fallthrough
+7D45|663DF8FFFF0F|      CMP EAX, 0FFFFFF8
+7D4B|73DA      |        JAE SetCarryAndReturn
+7D4D|          | ReadCluster:
+7D4D|66894614  |        MOV [BP+14], EAX
+7D51|66034618  |        ADD EAX, [BP+18]
+7D55|BF0082    |        MOV DI, 8200    ; fallthrough
+7D58|          | DiskReadSegment0:
+7D58|33DB      |        XOR BX, BX
+7D5A|          | DiskRead:              ; Read a sector at LBA EAX to BX:DI
+7D5A|C746001000|        MOV [BP+00], 0010
+7D5F|C746020100|        MOV [BP+02], CX
 7D64|897E04    |        MOV [BP+04], DI
 7D67|895E06    |        MOV [BP+06], BX
 7D6A|66894608  |        MOV [BP+08], EAX
@@ -88,14 +102,14 @@
 7D77|B442      |        MOV AH, 42
 7D79|89EE      |        MOV SI, BP
 7D7B|CD13      |        INT 13
-7D7D|7202      |        JC DiskError
+7D7D|7201      |        JC DiskError
 7D7F|C3        |        RET
 7D80|          | DiskError:
-7D80|BE987D    |        MOV SI, .msg
+7D80|BE967D    |        MOV SI, .msg
 7D83|AC        | .loop: LODSB
 7D84|08C0      |        OR AL, AL
 7D86|7405      |        JZ .end
-7D88|E82300    |        CALL PrintChar
+7D88|E82A00    |        CALL PrintChar
 7D8B|EBF6      |        JMP .loop
 7D8D|8AC4      | .end:  MOV AL, AH
 7D8F|E81100    |        CALL PrintHexByte
