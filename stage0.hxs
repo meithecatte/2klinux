@@ -12,14 +12,19 @@
 7C0B|89EC      |        MOV SP, BP      ; 7C00-7C0F is used as the disk packet, the stack is just below it
 7C0D|8ED1      |        MOV SS, CX      ; Set up the segments
 7C0F|8ED9      |        MOV DS, CX
-7C11|8EC1      |        MOV ES, CX
-7C13|FB        |        STI
-7C14|B40F      |        MOV AH, 0F      ; Clear the screen
-7C16|CD10      |        INT 10
-7C18|B400      |        MOV AH, 00
-7C1A|CD10      |        INT 10
-7C1C|E96801    |        JMP DiskError
-7C1F|0000000000000000|
+7C11|8EC1      |        MOV ES, CX      ; first instruction not overwritten by variables
+7C13|885610    |        MOV [BP+10], DL ; we just finished executing that memory location, but that's fine :P
+7C16|FB        |        STI             ; the BIOS saves the disk number in DL when jumping to 7C00
+7C17|B40F      |        MOV AH, 0F      ; Clear the screen
+7C19|CD10      |        INT 10
+7C1B|B400      |        MOV AH, 00
+7C1D|CD10      |        INT 10
+7C1F|41        |        INC CX            ; Load the VBR of the first partition at 7E00
+7C20|668B86C601|        MOV EAX, [BP+1C6]
+7C25|33DB      |        XOR BX, BX
+7C27|BF007E    |        MOV DI, 7E00
+7C2A|E82E01    |        CALL DiskRead
+7C2D|EBFE      |
     |0000000000000000|
     |0000000000000000|
     |0000000000000000|
@@ -57,27 +62,37 @@
     |0000000000000000|
     |0000000000000000|
     |0000000000000000|
-    |0000000000000000|
-    |0000000000000000|
-    |0000000000000000|
-    |0000000000000000|
-    |0000000000000000|
-    |0000000000000000|
-    |0000000000000000|
-7D87|          | DiskError:
-7D87|BE987D    |        MOV SI, .msg
-7D8A|AC        | .loop: LODSB
-7D8B|08C0      |        OR AL, AL
-7D8D|7405      |        JZ .end
-7D8F|E82300    |        CALL 7DB5
-7D92|EBF6      |        JMP .loop
-7D94|FA        | .end:  CLI
-7D95|F4        | .halt: HLT
-7D96|EBFD      |        JMP .halt
-7D98|          | .msg:
-7D98|4469736B20|        DB 'Disk error',0
-7D9D|6572726F72|
-7DA2|00        |
+    |00000000|
+    |          | DiskRead:              ; Read CX sectors at LBA EAX to BX:DI
+7D5B|C746001000|        MOV [BP+00], 0010
+7D60|894E02    |        MOV [BP+02], CX
+7D63|897E04    |        MOV [BP+04], DI
+7D66|895E06    |        MOV [BP+06], BX
+7D69|66894608  |        MOV [BP+08], EAX
+7D6D|6633C0    |        XOR EAX, EAX
+7D70|6689460C  |        MOV [BP+0C], EAX
+7D74|8A5610    |        MOV DL, [BP+10]
+7D77|B442      |        MOV AH, 42
+7D79|89EE      |        MOV SI, BP
+7D7B|CD13      |        INT 13
+7D7D|7202      |        JC DiskError
+7D7F|C3        |        RET
+7D80|          | DiskError:
+7D80|BE987D    |        MOV SI, .msg
+7D83|AC        | .loop: LODSB
+7D84|08C0      |        OR AL, AL
+7D86|7405      |        JZ .end
+7D88|E82300    |        CALL PrintChar
+7D8B|EBF6      |        JMP .loop
+7D8D|8AC4      | .end:  MOV AL, AH
+7D8F|E81100    |        CALL PrintHexByte
+7D92|FA        |        CLI
+7D93|F4        | .halt: HLT
+7D94|EBFD      |        JMP .halt
+7D96|          | .msg:
+7D96|4469736B20|        DB 'Disk error: ',0
+7D9B|6572726F72|
+7DA0|3A2000    |
 7DA3|          | PrintHexByte:
 7DA3|50        |        PUSH AX         ; Print hex byte in AL
 7DA4|C0E804    |        SHR AL, 04
