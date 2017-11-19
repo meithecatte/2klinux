@@ -17,7 +17,7 @@ info(){   $TPUT setaf 4; echo    "$*"; $TPUT sgr0; }
 PATH=$PATH:/sbin
 
 info "Generating stage0.bin..."
-printf "$(sed -e 's/^[^|]*|//g;s/|.*$//g;s/[^A-Fa-f0-9]//g' stage0.hxs | tr -d '\n' | sed -e 's/\(..\)/\\x\1/g')" >stage0.bin
+printf "$(sed -e 's/^[^|]*|//g;s/|.*$//g;s/[^A-Fa-f0-9]//g;s/\./0/g' stage0.hxs | tr -d '\n' | sed -e 's/\(..\)/\\x\1/g')" >stage0.bin
 SIZE="$(wc -c <stage0.bin)"
 EXPECTED=512
 
