@@ -12,33 +12,33 @@ fi
 # Colored output helpers
 error(){  $TPUT bold; $TPUT setaf 1; echo "$*"; $TPUT sgr0; exit 1; }
 info(){   $TPUT setaf 4; echo    "$*"; $TPUT sgr0; }
+infon(){  $TPUT setaf 4; echo -n "$*"; $TPUT sgr0; }
+accent(){ $TPUT setaf 5; echo    "$*"; $TPUT sgr0; }
 
 # Some utilities are put in /sbin even if they have a use for a normal user. Make sure sh can find them
 PATH=$PATH:/sbin
 
-info "Generating stage0.bin..."
-printf "$(sed -e 's/^[^|]*|//g;s/|.*$//g;s/[^A-Fa-f0-9]//g;s/\./0/g' stage0.hxs | tr -d '\n' | sed -e 's/\(..\)/\\x\1/g')" >stage0.bin
-SIZE="$(wc -c <stage0.bin)"
-EXPECTED=512
-
-if [ $SIZE -ne $EXPECTED ]; then
-	if [ $SIZE -gt $EXPECTED ]; then
-		CMP=large
-		DIFF=$(($SIZE - $EXPECTED))
-	elif [ $SIZE -lt $EXPECTED ]; then
-		CMP=small
-		DIFF=$(($EXPECTED - $SIZE))
-	fi
-
-	error "stage0.bin is too $CMP by $DIFF bytes"
+# Choose an assembler
+if command -v yasm >/dev/null; then
+	ASM=yasm
+elif command -v nasm >/dev/null; then
+	ASM=nasm
+else
+	error "Can't find a suitable assembler. Install yasm or nasm and try again."
 fi
+
+infon "Assembling stage0... "
+$ASM stage0.s -o stage0.bin -l stage0.lst
+MBRFREE="$((0x1BE - 0x$(grep 'times 446'  stage0.lst | awk '{ print $2 }') ))"
+VBRFREE="$((0x3FE - 0x$(grep 'times 1022' stage0.lst | awk '{ print $2 }') ))"
+accent "$MBRFREE + $VBRFREE = $(($MBRFREE + $VBRFREE)) bytes free"
 
 info "Creating the partition image..."
 rm -f 1klinux.img fs.img
 truncate -s 64M fs.img
 
 info "Creating a FAT32 filesystem..."
-mkfs.fat -F 32 -S 512 -s 1 fs.img >/dev/null
+mkfs.fat -F 32 -S 512 fs.img >/dev/null
 mcopy -i fs.img TESTING.TXT ::
 
 info "Creating the disk image..."
