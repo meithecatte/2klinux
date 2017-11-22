@@ -313,5 +313,62 @@ BPBLabel:
 BPBSystemIdentifier:
 	times 8 db 0
 
+Check_A20:
+	; assumes DS = 0
+	mov cx, 0xFFFF
+	mov fs, cx
+	mov si, 0x7c00
+
+.loop:
+	mov al, byte[si]
+	inc byte[fs:si+0x10]
+	cmp al, byte[si]
+	jnz A20_OK
+	loop .loop
+
+KBC_WaitWrite:
+	in al, 0x64
+	test al, 2
+	jnz KBC_WaitWrite
+	ret
+
+KBC_SendCommand:
+	call KBC_WaitWrite
+	pop di
+	lodsb
+	out 0x64, al
+	jmp di
+
+KBC_A20:
+	cli
+	call KBC_SendCommand
+	db 0xAD
+
+	call KBC_SendCommand
+	db 0xD0
+
+.readwait:
+	in al, 0x64
+	test al, 1
+	jz .readwait
+
+	in al, 0x60
+	push ax
+
+	call KBC_SendCommand
+	db 0xD1
+
+	pop ax
+	or al, 2
+	out 0x60, al
+
+	call KBC_SendCommand
+	db 0xAE
+
+	sti
+	jmp short KBC_WaitWrite
+
+A20_OK:
+
 	times 1022 - ($ - $$) db 0
 	dw 0xaa55
