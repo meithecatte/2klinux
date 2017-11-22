@@ -325,6 +325,7 @@ Check_A20:
 	cmp al, byte[si]
 	jnz A20_OK
 	loop .loop
+	ret
 
 KBC_WaitWrite:
 	in al, 0x64
