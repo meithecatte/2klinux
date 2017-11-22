@@ -147,13 +147,12 @@ ReadNextCluster:
 	; fallthrough
 ReadCluster:
 	mov dword[CurrentCluster], eax
-	mov ebx, eax
 	mov eax, dword[BPBSectorsPerFAT]
 	movzx ecx, byte[BPBFATCount]
 	mul ecx
 	add eax, dword[FATStart]
 	sub eax, 2
-	add eax, ebx
+	add eax, dword[CurrentCluster]
 	mov cl, 1
 
 	mov di, FileBuffer
