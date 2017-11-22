@@ -48,6 +48,10 @@ org 0x7c00
 %define Error_FileNotFound           0xe1
 %define Error_A20                    0xe2
 
+%define Selector_Code16              GDT_Code16 - GDT
+%define Selector_Code32              GDT_Code32 - GDT
+%define Selector_Data                GDT_Data - GDT
+
 MBR:
 	jmp 0:start
 start:
@@ -58,6 +62,8 @@ start:
 	mov ss, cx
 	mov ds, cx
 	mov es, cx
+	dec cx
+	mov fs, cx
 	mov byte[..@DiskReadPatch+1], dl
 	sti
 
@@ -68,7 +74,7 @@ start:
 
 	mov eax, dword[P1LBA]
 	mov di, VBR
-	inc cx
+	mov cx, 1
 	call DiskReadSegment0
 
 	movzx eax, word[BPBReservedSectors]
@@ -79,7 +85,7 @@ start:
 	call ReadCluster
 	mov di, .filename
 	call FindFile
-	jmp Error
+	jmp GoPM
 .filename:
 	db 'TESTING TXT'
 
@@ -142,12 +148,13 @@ ReadNextCluster:
 ReadCluster:
 	mov dword[CurrentCluster], eax
 	mov ebx, eax
-	mov eax, dword[BPBLongSectorsPerFAT]
+	mov eax, dword[BPBSectorsPerFAT]
 	movzx ecx, byte[BPBFATCount]
 	mul ecx
 	add eax, dword[FATStart]
 	sub eax, 2
 	add eax, ebx
+	mov cl, 1
 
 	mov di, FileBuffer
 	; fallthrough
@@ -224,11 +231,9 @@ BPBReservedSectors:
 BPBFATCount:
 	db 0
 
-	times 15 db 0
+	times 19 db 0
 
-BPBLongSectorCount:
-	dd 0
-BPBLongSectorsPerFAT:
+BPBSectorsPerFAT:
 	dd 0
 
 	dd 0
@@ -236,12 +241,37 @@ BPBLongSectorsPerFAT:
 BPBRootDirectoryCluster:
 	dd 0
 
-	times 42 db 0 ; reserved
+	times 42 db 0
+
+GDT:
+	dw GDT_End - GDT - 1
+	dd GDT
+	dw 0
+GDT_Code16:
+	dw 0xffff
+	dw 0
+	db 0
+	db 0x9a
+	db 0x8f
+	db 0
+GDT_Code32:
+	dw 0xffff
+	dw 0
+	db 0
+	db 0x9a
+	db 0xcf
+	db 0
+GDT_Data:
+	dw 0xffff
+	dw 0
+	db 0
+	db 0x92
+	db 0xcf
+	db 0
+GDT_End:
 
 Check_A20:
 	; assumes DS = 0
-	mov cx, 0xFFFF
-	mov fs, cx
 	mov si, 0x7dfe
 
 .loop:
@@ -249,7 +279,7 @@ Check_A20:
 	inc byte[fs:si+0x10]
 	wbinvd
 	cmp al, byte[si]
-	jnz A20_OK
+	jz A20_OK
 	loop .loop
 	ret
 
@@ -261,18 +291,18 @@ KBC_WaitWrite:
 
 KBC_SendCommand:
 	call KBC_WaitWrite
-	pop di
+	pop si
 	lodsb
 	out 0x64, al
-	jmp di
+	jmp si
 
-DoA20:
+GoPM:
+	cli
 	call Check_A20
 	mov ax, 0x2401
 	int 0x15
 	call Check_A20
 
-	cli
 	call KBC_SendCommand
 	db 0xAD
 
@@ -297,16 +327,34 @@ DoA20:
 	call KBC_SendCommand
 	db 0xAE
 
-	sti
 	call Check_A20
 	in al, 0x92
 	or al, 2
+	and al, 0xfe
 	out 0x92, al
 	call Check_A20
 	mov al, Error_A20
 	jmp Error
 
 A20_OK:
+	lgdt [GDT]
+	mov eax, cr0
+	or al, 1
+	mov cr0, eax
+	jmp Selector_Code32:.pmode
+
+BITS 32
+.pmode:
+	mov ax, Selector_Data
+	mov ds, ax
+	mov es, ax
+	mov ss, ax
+	mov esp, FileBuffer
+
+	mov bx, 0x0f01
+	mov eax, 0xb8000
+	mov word[ds:eax], bx
+	jmp $
 
 	times 1022 - ($ - $$) db 0
 	dw 0xaa55

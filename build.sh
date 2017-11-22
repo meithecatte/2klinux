@@ -57,4 +57,4 @@ dd if=fs.img of=1klinux.img conv=notrunc status=none bs=512 seek=1
 info "Installing stage0.bin..."
 dd if=stage0.bin of=1klinux.img conv=notrunc status=none bs=1 count=446
 dd if=stage0.bin of=1klinux.img conv=notrunc status=none bs=1 count=5 skip=510 seek=510
-dd if=stage0.bin of=1klinux.img conv=notrunc status=none bs=1 count=420 skip=602 seek=604
+dd if=stage0.bin of=1klinux.img conv=notrunc status=none bs=1 count=420 skip=604 seek=604
