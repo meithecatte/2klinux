@@ -42,9 +42,9 @@ org 0x7c00
 %define INT10_GetVideoMode           0x0f
 %define INT10_SetVideoMode           0x00
 
-%define Error_Disk                   0xe0
-%define Error_FileNotFound           0xe1
-%define Error_A20                    0xe2
+%define Error_Disk                   'Q'
+%define Error_FileNotFound           'R'
+%define Error_A20                    'S'
 
 %define Selector_Code16              16
 %define Selector_Code32              8
@@ -75,8 +75,7 @@ start:
 	mov eax, dword[P1LBA]
 	mov di, VBR
 	push word A20
-	jmp short DiskRead
-
+	; fallthrough
 DiskRead:
 	mov dword[DiskPacketLBA], eax
 	xor eax, eax
@@ -92,26 +91,23 @@ DiskRead:
 	jnc short Return
 
 	mov al, ah
-	call PrintHexByte
+	call PrintByte
 	mov al, Error_Disk
 Error:
-	call PrintHexByte
-.halt:
+	call PrintChar
+Halt:
 	hlt
-	jmp short .halt
+	jmp short Halt
 
-PrintHexByte:
+PrintByte:
 	push ax
 	shr al, 4
-	call PrintHexDigit
+	call PrintNibble
 	pop ax
 	and al, 0x0f
 	; fallthrough
-PrintHexDigit:
-	add al, '0'
-	cmp al, '9'
-	jbe PrintChar
-	add al, 'A' - '0' - 10
+PrintNibble:
+	add al, 'A'
 	; fallthrough
 PrintChar:
 	pusha
@@ -133,6 +129,8 @@ PM_Entry:
 	call ReadCluster
 	mov edi, .filename
 	call FindFile
+	cli
+	hlt
 .filename:
 	db 'TESTING TXT'
 
@@ -148,7 +146,7 @@ FindFile:
 	; but it won't match the filename anyway
 	test byte[esi+DirAttributes], 0x0e
 	jnz short .next
-	pusha
+	pushad
 	mov cl, FATNameLength
 .cmploop:
 	lodsb
@@ -162,13 +160,13 @@ FindFile:
 	jne short .nomatch
 	inc edi
 	loop short .cmploop
-	popa
+	popad
 	mov eax, [esi+DirHighCluster]
 	shl eax, 16
 	mov ax, [esi+DirLowCluster]
 	jmp short ReadCluster
 .nomatch:
-	popa
+	popad
 .next:
 	add esi, DirEntrySize
 	loop short .loop
@@ -200,7 +198,8 @@ ReadCluster:
 	movzx ecx, byte[BPBFATCount]
 	mul ecx
 	add eax, dword[FATStart]
-	sub eax, 2
+	dec eax
+	dec eax
 	add eax, ebx
 
 	mov di, FileBuffer
@@ -268,14 +267,10 @@ GDT:
 	db 0xcf
 	db 0
 
-KBC_WaitWrite:
+KBC_SendCommand:
 	in al, 0x64
 	test al, 2
-	jnz KBC_WaitWrite
-	ret
-
-KBC_SendCommand:
-	call KBC_WaitWrite
+	jnz KBC_SendCommand
 	pop si
 	lodsb
 	out 0x64, al
@@ -295,7 +290,7 @@ Check_A20:
 .ok:
 
 	push dword PM_Entry-2
-	jmp GoPM
+	jmp short GoPM
 
 A20:
 	cli
