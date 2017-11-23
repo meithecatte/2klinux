@@ -85,7 +85,7 @@ start:
 	call ReadCluster
 	mov di, .filename
 	call FindFile
-	jmp GoPM
+	jmp A20
 .filename:
 	db 'TESTING TXT'
 
@@ -147,12 +147,13 @@ ReadNextCluster:
 	; fallthrough
 ReadCluster:
 	mov dword[CurrentCluster], eax
+	mov ebx, eax
 	mov eax, dword[BPBSectorsPerFAT]
 	movzx ecx, byte[BPBFATCount]
 	mul ecx
 	add eax, dword[FATStart]
 	sub eax, 2
-	add eax, dword[CurrentCluster]
+	add eax, ebx
 	mov cl, 1
 
 	mov di, FileBuffer
@@ -278,9 +279,12 @@ Check_A20:
 	inc byte[fs:si+0x10]
 	wbinvd
 	cmp al, byte[si]
-	jz A20_OK
+	jz .ok
 	loop .loop
 	ret
+.ok:
+	push dword PM_Entry-2
+	jmp GoPM
 
 KBC_WaitWrite:
 	in al, 0x64
@@ -295,7 +299,7 @@ KBC_SendCommand:
 	out 0x64, al
 	jmp si
 
-GoPM:
+A20:
 	cli
 	call Check_A20
 	mov ax, 0x2401
@@ -335,25 +339,62 @@ GoPM:
 	mov al, Error_A20
 	jmp Error
 
-A20_OK:
+BITS 32
+PM_Entry:
+	mov esi, .text
+.loop:
+	lodsb
+	or al, al
+	jz .end
+	call CallRM
+	dw PrintChar
+	jmp .loop
+.end:
+	cli
+	hlt
+	jmp .end
+.text:
+	db 'Hi from PM!', 0
+
+CallRM:
+	mov ebp, eax
+	mov eax, [esp]
+	mov ax, [eax]
+	jmp Selector_Code16:.code16
+BITS 16
+.code16:
+	push word GoPM
+	push ax
+	mov eax, cr0
+	and al, 0xfe
+	mov cr0, eax
+	jmp 0:.rmode
+.rmode:
+	xor ax, ax
+	mov ds, ax
+	mov es, ax
+	mov ss, ax
+	mov eax, ebp
+	mov bp, MBR
+	ret
+GoPM:
 	lgdt [GDT]
+	mov ebp, eax
 	mov eax, cr0
 	or al, 1
 	mov cr0, eax
-	jmp Selector_Code32:.pmode
-
+	jmp Selector_Code32:.code32
 BITS 32
-.pmode:
+.code32:
 	mov ax, Selector_Data
 	mov ds, ax
 	mov es, ax
 	mov ss, ax
-	mov esp, FileBuffer
-
-	mov bx, 0x0f01
-	mov eax, 0xb8000
-	mov word[ds:eax], bx
-	jmp $
+	movzx esp, sp
+	add dword[esp], 2
+	mov eax, ebp
+	mov ebp, MBR
+	ret
 
 	times 1022 - ($ - $$) db 0
 	dw 0xaa55
