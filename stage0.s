@@ -23,14 +23,12 @@ bits 16
 org 0x7c00
 
 %define DiskPacket                   bp
-%define DiskPacketSizeReserved       DiskPacket
-%define DiskPacketSectorCount        DiskPacket+2
 %define DiskPacketDestinationOffset  DiskPacket+4
 %define DiskPacketDestinationSegment DiskPacket+6
 %define DiskPacketLBA                DiskPacket+8
 
-%define FATStart                     bp+16
-%define CurrentCluster               bp+20
+%define FATStart                     ebp+16
+%define CurrentCluster               ebp+20
 
 %define FATNameLength                11
 %define DirAttributes                11
@@ -48,9 +46,9 @@ org 0x7c00
 %define Error_FileNotFound           0xe1
 %define Error_A20                    0xe2
 
-%define Selector_Code16              GDT_Code16 - GDT
-%define Selector_Code32              GDT_Code32 - GDT
-%define Selector_Data                GDT_Data - GDT
+%define Selector_Code16              16
+%define Selector_Code32              8
+%define Selector_Data                24
 
 MBR:
 	jmp 0:start
@@ -64,6 +62,8 @@ start:
 	mov es, cx
 	dec cx
 	mov fs, cx
+	mov cx, 0xb800
+	mov gs, cx
 	mov byte[..@DiskReadPatch+1], dl
 	sti
 
@@ -74,101 +74,16 @@ start:
 
 	mov eax, dword[P1LBA]
 	mov di, VBR
-	mov cx, 1
-	call DiskReadSegment0
+	push word A20
+	jmp short DiskRead
 
-	movzx eax, word[BPBReservedSectors]
-	add eax, dword[P1LBA]
-	mov dword[FATStart], eax
-
-	mov eax, dword[BPBRootDirectoryCluster]
-	call ReadCluster
-	mov di, .filename
-	call FindFile
-	jmp A20
-.filename:
-	db 'TESTING TXT'
-
-FindFile:
-	mov cx, 16
-	mov si, FileBuffer
-.loop:
-	mov al, byte[si]
-	or al, al
-	jz short .notfound
-	; normally, you would check if the first byte is 0xE5 (if so, you should skip the entry),
-	; but it won't match the filename anyway
-	test byte[si+DirAttributes], 0x0e
-	jnz short .next
-	pusha
-	mov cl, FATNameLength
-.cmploop:
-	lodsb
-	cmp al, 'a'
-	jb .noconvert
-	cmp al, 'z'
-	ja .noconvert
-	sub al, 'a' - 'A'
-.noconvert:
-	cmp al, byte[di]
-	jne short .nomatch
-	inc di
-	loop short .cmploop
-	popa
-	mov ax, word[si+DirHighCluster]
-	shl eax, 16
-	mov ax, word[si+DirLowCluster]
-	jmp short ReadCluster
-.nomatch:
-	popa
-.next:
-	add si, DirEntrySize
-	loop short .loop
-	push di
-	call ReadNextCluster
-	pop di
-	jnc short FindFile
-.notfound:
-	mov al, Error_FileNotFound
-	jmp short Error
-ReadNextCluster:
-	mov eax, dword[CurrentCluster]
-	shr eax, 7
-	add eax, dword[FATStart]
-	mov di, FATBuffer
-	call DiskReadSegment0
-	mov bl, byte[CurrentCluster]
-	shl bl, 1
-	shl bx, 1
-	mov eax, dword[bx+di]
-	cmp eax, 0x0ffffff8
-	cmc
-	jc short Return
-	; fallthrough
-ReadCluster:
-	mov dword[CurrentCluster], eax
-	mov ebx, eax
-	mov eax, dword[BPBSectorsPerFAT]
-	movzx ecx, byte[BPBFATCount]
-	mul ecx
-	add eax, dword[FATStart]
-	sub eax, 2
-	add eax, ebx
-	mov cl, 1
-
-	mov di, FileBuffer
-	; fallthrough
-DiskReadSegment0:
-	xor bx, bx
-	; fallthrough
 DiskRead:
-	mov word[DiskPacketSizeReserved], 0x0010
-	mov word[DiskPacketSectorCount], cx
-	mov word[DiskPacketDestinationOffset], di
-	mov word[DiskPacketDestinationSegment], bx
 	mov dword[DiskPacketLBA], eax
 	xor eax, eax
 	mov dword[DiskPacketLBA+4], eax
+	mov dword[DiskPacket], 0x10010
+	mov word[DiskPacketDestinationOffset], di
+	mov word[DiskPacketDestinationSegment], ax
 ..@DiskReadPatch:
 	db 0xB2, 0xFF ; mov dl, (patched at runtime)
 	mov ah, 0x42
@@ -208,6 +123,90 @@ PrintChar:
 Return:
 	ret
 
+BITS 32
+PM_Entry:
+	movzx eax, word[BPBReservedSectors]
+	add eax, dword[P1LBA]
+	mov dword[FATStart], eax
+
+	mov eax, dword[BPBRootDirectoryCluster]
+	call ReadCluster
+	mov edi, .filename
+	call FindFile
+.filename:
+	db 'TESTING TXT'
+
+FindFile:
+	xor ecx, ecx
+	mov cl, 16
+	mov esi, FileBuffer
+.loop:
+	mov al, byte[esi]
+	or al, al
+	jz short .notfound
+	; normally, you would check if the first byte is 0xE5 (if so, you should skip the entry),
+	; but it won't match the filename anyway
+	test byte[esi+DirAttributes], 0x0e
+	jnz short .next
+	pusha
+	mov cl, FATNameLength
+.cmploop:
+	lodsb
+	cmp al, 'a'
+	jb .noconvert
+	cmp al, 'z'
+	ja .noconvert
+	sub al, 'a' - 'A'
+.noconvert:
+	cmp al, byte[edi]
+	jne short .nomatch
+	inc edi
+	loop short .cmploop
+	popa
+	mov eax, [esi+DirHighCluster]
+	shl eax, 16
+	mov ax, [esi+DirLowCluster]
+	jmp short ReadCluster
+.nomatch:
+	popa
+.next:
+	add esi, DirEntrySize
+	loop short .loop
+	push edi
+	call ReadNextCluster
+	pop edi
+	jnc short FindFile
+.notfound:
+	; TODO
+ReadNextCluster:
+	mov eax, dword[CurrentCluster]
+	shr eax, 7
+	add eax, dword[FATStart]
+	mov edi, FATBuffer
+	call CallRM
+	dw DiskRead
+	movzx ebx, byte[CurrentCluster]
+	shl bl, 1
+	mov eax, dword[edi+2*ebx]
+	cmp eax, 0x0ffffff8
+	cmc
+	jnc short ReadCluster
+	ret
+
+ReadCluster:
+	mov dword[CurrentCluster], eax
+	mov ebx, eax
+	mov eax, dword[BPBSectorsPerFAT]
+	movzx ecx, byte[BPBFATCount]
+	mul ecx
+	add eax, dword[FATStart]
+	sub eax, 2
+	add eax, ebx
+
+	mov di, FileBuffer
+	call CallRM
+	dw DiskRead
+	ret
 	times 446 - ($ - $$) db 0
 
 PartitionTable:
@@ -242,50 +241,34 @@ BPBRootDirectoryCluster:
 	dd 0
 
 	times 42 db 0
-
+BITS 16
 GDT:
-	dw GDT_End - GDT - 1
+	dw 31
 	dd GDT
 	dw 0
-GDT_Code16:
-	dw 0xffff
-	dw 0
-	db 0
-	db 0x9a
-	db 0x8f
-	db 0
-GDT_Code32:
+
 	dw 0xffff
 	dw 0
 	db 0
 	db 0x9a
 	db 0xcf
 	db 0
-GDT_Data:
-	dw 0xffff
-	dw 0
-	db 0
-	db 0x92
-	db 0xcf
-	db 0
-GDT_End:
+;GDT_Code16:
+	;dw 0xffff
+	;dw 0
+	;db 0
+	;db 0x9a
+	;db 0x8f
+	;db 0
+;GDT_Data:
+	;dw 0xffff
+	;dw 0
+	;db 0
+	;db 0x92
+	;db 0xcf
+	;db 0
 
-Check_A20:
-	; assumes DS = 0
-	mov si, 0x7dfe
-
-.loop:
-	mov al, byte[si]
-	inc byte[fs:si+0x10]
-	wbinvd
-	cmp al, byte[si]
-	jz .ok
-	loop .loop
-	ret
-.ok:
-	push dword PM_Entry-2
-	jmp GoPM
-
+; the next two routines will be overwritten by GDT after enabling A20
 KBC_WaitWrite:
 	in al, 0x64
 	test al, 2
@@ -298,6 +281,28 @@ KBC_SendCommand:
 	lodsb
 	out 0x64, al
 	jmp si
+
+Check_A20:
+	; assumes DS = 0
+	mov si, 0x7dfe
+.loop:
+	mov al, byte[si]
+	inc byte[fs:si+0x10]
+	wbinvd
+	cmp al, byte[si]
+	jz .ok
+	loop .loop
+	ret
+.ok:
+	mov si, GDT + 8
+	mov di, GDT + 16
+	mov cx, 8
+	rep movsw
+	mov byte[di-3], 0x92
+	mov byte[di-18], 0x8f
+
+	push dword PM_Entry-2
+	jmp GoPM
 
 A20:
 	cli
@@ -340,26 +345,10 @@ A20:
 	jmp Error
 
 BITS 32
-PM_Entry:
-	mov esi, .text
-.loop:
-	lodsb
-	or al, al
-	jz .end
-	call CallRM
-	dw PrintChar
-	jmp .loop
-.end:
-	cli
-	hlt
-	jmp .end
-.text:
-	db 'Hi from PM!', 0
-
 CallRM:
 	mov ebp, eax
 	mov eax, [esp]
-	mov ax, [eax]
+	mov eax, [eax]
 	jmp Selector_Code16:.code16
 BITS 16
 .code16:
