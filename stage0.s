@@ -253,22 +253,21 @@ GDT:
 	db 0x9a
 	db 0xcf
 	db 0
-;GDT_Code16:
-	;dw 0xffff
-	;dw 0
-	;db 0
-	;db 0x9a
-	;db 0x8f
-	;db 0
-;GDT_Data:
-	;dw 0xffff
-	;dw 0
-	;db 0
-	;db 0x92
-	;db 0xcf
-	;db 0
 
-; the next two routines will be overwritten by GDT after enabling A20
+	dw 0xffff
+	dw 0
+	db 0
+	db 0x9a
+	db 0x8f
+	db 0
+
+	dw 0xffff
+	dw 0
+	db 0
+	db 0x92
+	db 0xcf
+	db 0
+
 KBC_WaitWrite:
 	in al, 0x64
 	test al, 2
@@ -294,12 +293,6 @@ Check_A20:
 	loop .loop
 	ret
 .ok:
-	mov si, GDT + 8
-	mov di, GDT + 16
-	mov cx, 8
-	rep movsw
-	mov byte[di-3], 0x92
-	mov byte[di-18], 0x8f
 
 	push dword PM_Entry-2
 	jmp GoPM
