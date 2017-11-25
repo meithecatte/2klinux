@@ -40,7 +40,13 @@
 : / /MOD NIP ;
 : MOD /MOD DROP ;
 
-: <>    = NOT ;
-: >=    < NOT ;
-: <=    2DUP < -ROT = OR ;
-: >     <= NOT ;
+: INVERT 0- 1- ;
+: NAND AND INVERT ;
+: NOR INVERT SWAP INVERT AND ;
+: OR NOR INVERT ;
+: XOR 2DUP NAND -ROT OR AND ;
+
+: <> = NOT ;
+: >= < NOT ;
+: <= 2DUP < -ROT = OR ;
+: >  <= NOT ;

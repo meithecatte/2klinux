@@ -455,18 +455,6 @@ AND_:
 	and eax, ebx
 	jmp short pushEAXdoNEXT
 
-OR_:
-	pop ebx
-	pop eax
-	or eax, ebx
-	jmp short pushEAXdoNEXT
-
-XOR_:
-	pop ebx
-	pop eax
-	xor eax, ebx
-	jmp short pushEAXdoNEXT
-
 LT:
 	pop ebx
 	pop eax
