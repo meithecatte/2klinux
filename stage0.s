@@ -7,6 +7,8 @@
 ;  7C18 -  7C1B -> OFFSET
 ;  7C1C -  7C1F -> LATEST
 ;  7C20 -  7C23 -> HERE
+;  7C24 -  7C27 -> BASE
+;  7C28 -  7C2B -> STATE
 ;  7DDE -  7DFD -> WORD's buffer
 ; The general memory map looks like this:
 ;  0000 -  03FF -> Real mode interrupt vector table
@@ -26,40 +28,52 @@
 bits 16
 org 0x7c00
 
-%define DiskPacket                   bp
-%define DiskPacketDestinationOffset  DiskPacket+4
-%define DiskPacketDestinationSegment DiskPacket+6
-%define DiskPacketLBA                DiskPacket+8
+%define DiskPacket            bp
+%define DiskPacketDestOffset  bp+4
+%define DiskPacketDestSegment bp+6
+%define DiskPacketLBA         bp+8
 
-%define FATStart                     ebp+16
-%define CurrentCluster               ebp+20
-%define OFFSET                       ebp+24
-%define LATEST                       ebp+28
-%define HERE                         ebp+32
+%define FATStart       ebp+16
+%define CurrentCluster ebp+20
+%define OFFSET         ebp+24
+%define LATEST         ebp+28
+%define HERE           ebp+32
+%define BASE           ebp+36
+%define STATE          ebp+40
 
-%define FATNameLength                11
-%define DirAttributes                11
-%define DirHighCluster               20
-%define DirLowCluster                26
-%define DirEntrySize                 32
+%define FATNameLength  11
+%define DirAttributes  11
+%define DirHighCluster 20
+%define DirLowCluster  26
+%define DirEntrySize   32
 
-%define FileBuffer                   0x7800
-%define FATBuffer                    0x7a00
+%define FileBuffer 0x7800
+%define FATBuffer  0x7a00
 
-%define INT10_GetVideoMode           0x0f
-%define INT10_SetVideoMode           0x00
+%define INT10_GetVideoMode 0x0f
+%define INT10_SetVideoMode 0x00
 
-%define Error_Disk                   'Q'
-%define Error_FileNotFound           'R'
-%define Error_A20                    'S'
+%define Error_Disk         'Q'
+%define Error_FileNotFound 'R'
+%define Error_A20          'S'
 
-%define Selector_Code16              16
-%define Selector_Code32              8
-%define Selector_Data                24
+%define Selector_Code32 0x08
+%define Selector_Code16 0x10
+%define Selector_Data   0x18
 
 %macro NEXT 0
 	lodsd
 	jmp [eax]
+%endmacro
+
+%macro RPUSH 1
+	sub edi, 4
+	mov [edi], %1
+%endmacro
+
+%macro RPOP 1
+	mov %1, [edi]
+	add edi, 4
 %endmacro
 
 MBR:
@@ -93,8 +107,8 @@ DiskRead:
 	xor eax, eax
 	mov dword[DiskPacketLBA+4], eax
 	mov dword[DiskPacket], 0x10010
-	mov word[DiskPacketDestinationOffset], di
-	mov word[DiskPacketDestinationSegment], ax
+	mov word[DiskPacketDestOffset], di
+	mov word[DiskPacketDestSegment], ax
 ..@DiskReadPatch:
 	db 0xB2, 0xFF ; mov dl, (patched at runtime)
 	mov ah, 0x42
@@ -144,6 +158,9 @@ PM_Entry:
 
 	xor eax, eax
 	mov [LATEST], eax
+	mov [STATE], eax
+	mov [BASE], eax
+	mov byte[BASE], 0x10
 	mov ah, 0x15
 	mov edi, eax
 	mov ah, 0x80
@@ -152,6 +169,20 @@ PM_Entry:
 	hlt
 .filename:
 	db 'STAGE1  FT '
+
+_KEY:
+	mov ebx, [OFFSET]
+	cmp bx, 0x200
+	jb .gotsector
+	pushad
+	call ReadNextCluster
+	popad
+	xor ebx, ebx
+.gotsector:
+	mov al, [FileBuffer+ebx]
+	inc ebx
+	mov [OFFSET], ebx
+	ret
 
 FindFile:
 	xor ecx, ecx
@@ -401,15 +432,13 @@ LIT:
 	jmp short pushEAXdoNEXT
 
 DOCOL:
-	sub edi, 4
-	mov [edi], esi
-	add eax, 4
+	RPUSH esi
+	add eax, 4 ; skip codeword
 	mov esi, eax
 	jmp short doNEXT
 
 EXIT:
-	mov esi, [edi]
-	add edi, 4
+	RPOP esi
 	jmp short doNEXT
 
 SWAP:
@@ -507,19 +536,9 @@ BRANCH:
 	add esi, [esi]
 	jmp short doNEXT
 
-_KEY:
-	mov ebx, [OFFSET]
-	cmp bx, 0x200
-	jb .gotsector
-	pushad
-	call ReadNextCluster
-	popad
-	xor ebx, ebx
-.gotsector:
-	mov al, [FileBuffer+ebx]
-	inc ebx
-	mov [OFFSET], ebx
-	ret
+KEY:
+	call _KEY
+	jmp short pushEAXdoNEXT
 
 	times 1022 - ($ - $$) db 0
 	dw 0xaa55

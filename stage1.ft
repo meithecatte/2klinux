@@ -1,9 +1,13 @@
-: S0 30270 ;
-: R0 5376 ;
+: S0 7800 ;
+: R0 1500 ;
 
-: OFFSET 31768 ;
-: LATEST 31772 ;
-: HERE 31776 ;
+: OFFSET 7C18 ;
+: LATEST 7C1C ;
+: HERE   7C20 ;
+: BASE   7C24 ;
+: STATE  7C28 ;
+
+10 BASE !
 
 : DROP SP@ 4+ SP! ;
 : DUP SP@ @ ;
@@ -50,3 +54,9 @@
 : >= < NOT ;
 : <= 2DUP < -ROT = OR ;
 : >  <= NOT ;
+
+: -! DUP @ ROT - SWAP ! ;
+: +! SWAP NEGATE SWAP ;
+: C@ @ 255 AND ;
+: C! SWAP 255 AND OVER @ -256 AND + SWAP ! ;
+: C@C! OVER @ OVER ! 1+ SWAP 1+ SWAP ;
