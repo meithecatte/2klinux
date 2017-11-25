@@ -146,7 +146,7 @@ PM_Entry:
 	cli
 	hlt
 .filename:
-	db 'STAGE1  F  '
+	db 'STAGE1  FT '
 
 ;DROP:
 ;	pop eax
@@ -156,52 +156,6 @@ PM_Entry:
 ;	push eax
 ;	push eax
 ;	jmp short doNEXT
-
-LIT:
-	lodsd
-	push eax
-	jmp short doNEXT
-
-SWAP:
-	pop eax
-	pop ebx
-	push eax
-	push ebx
-	jmp short doNEXT
-
-ROT:
-	pop eax
-	pop ebx
-	pop ecx
-	push ebx
-	push eax
-	push ecx
-	jmp short doNEXT
-
-ZBRANCH:
-	pop eax
-	or eax, eax
-	jz BRANCH
-	lodsd
-	jmp short doNEXT
-BRANCH:
-	add esi, [esi]
-doNEXT:
-	NEXT
-
-_KEY:
-	mov ebx, [OFFSET]
-	cmp bx, 0x200
-	jb .gotsector
-	pushad
-	call ReadNextCluster
-	popad
-	xor ebx, ebx
-.gotsector:
-	mov al, [FileBuffer+ebx]
-	inc ebx
-	mov [OFFSET], ebx
-	ret
 
 FindFile:
 	xor ecx, ecx
@@ -444,6 +398,114 @@ BITS 32
 	add dword[esp], 2
 	mov eax, ebp
 	mov ebp, MBR
+	ret
+
+LIT:
+	lodsd
+	jmp short pushEAXdoNEXT
+
+DOCOL:
+	sub edi, 4
+	mov [edi], esi
+	add eax, 4
+	mov esi, eax
+	jmp short doNEXT
+
+SWAP:
+	pop edx
+	pop eax
+	jmp short pushEDXEAXdoNEXT
+
+ROT:
+	pop edx
+	pop ebx
+	pop eax
+pushEBXEDXEAXdoNEXT:
+	push ebx
+pushEDXEAXdoNEXT:
+	push edx
+pushEAXdoNEXT:
+	push eax
+doNEXT:
+	NEXT
+
+SUB_:
+	pop ebx
+	pop eax
+	sub eax, ebx
+	jmp short pushEAXdoNEXT
+
+MUL_:
+	pop eax
+	pop ebx
+	imul eax, ebx
+	jmp short pushEAXdoNEXT
+
+DIVMOD:
+	xor edx, edx
+	pop ebx
+	pop eax
+	idiv eax, ebx
+	jmp short pushEDXEAXdoNEXT
+
+LT:
+	mov al, 0x9c
+	jmp short doCC
+
+GT:
+	mov al, 0x9f
+	jmp short doCC
+
+EQ:
+	mov al, 0x94
+doCC:
+	mov [doCCsmc+1], al
+	pop ebx
+	pop eax
+	cmp eax, ebx
+doCCsmc:
+	sete al
+	movzx eax, al
+	jmp short pushEAXdoNEXT
+
+RSPFETCH:
+	push edi
+	jmp short doNEXT
+
+RSPSTORE:
+	pop edi
+	jmp short doNEXT
+
+SPFETCH:
+	mov eax, esp
+	jmp short pushEAXdoNEXT
+
+SPSTORE:
+	pop esp
+	jmp short doNEXT
+
+ZBRANCH:
+	pop eax
+	or eax, eax
+	jz BRANCH
+	lodsd
+	jmp short doNEXT
+BRANCH:
+	add esi, [esi]
+	jmp short doNEXT
+
+_KEY:
+	mov ebx, [OFFSET]
+	cmp bx, 0x200
+	jb .gotsector
+	pushad
+	call ReadNextCluster
+	popad
+	xor ebx, ebx
+.gotsector:
+	mov al, [FileBuffer+ebx]
+	inc ebx
+	mov [OFFSET], ebx
 	ret
 
 	times 1022 - ($ - $$) db 0

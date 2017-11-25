@@ -1,0 +1,41 @@
+: S0 30270 ;
+: R0 5376 ;
+
+: OFFSET 31768 ;
+: LATEST 31772 ;
+: HERE 31776 ;
+
+: 0=  0 =  ;
+: 0-  0 SWAP - ;
+: +   0- - ;
+: / /MOD NIP ;
+: MOD /MOD DROP ;
+: 1+ -1  - ;
+: 1-  1  - ;
+: 4+ -4  - ;
+: 4-  4  - ;
+: 2* DUP + ;
+: 4* 2* 2* ;
+: NEGATE 0- ;
+
+: TRUE  1 ;
+: FALSE 0 ;
+: NOT   0= ;
+: <>    = NOT ;
+: <=    > NOT ;
+: >=    < NOT ;
+
+: DROP SP@ 4+ SP! ;
+: DUP SP@ @ ;
+: -ROT ROT ROT ;
+: OVER SP@ 4+ @ ;
+: PICK 1+ 4* SP@ + @ ;
+: NIP SWAP DROP ;
+: TUCK SWAP OVER ;
+
+: 2DROP SP@ 8 + SP! ;
+: 2DUP OVER OVER ;
+
+: RDROP RSP@ 4+ RSP! ;
+: >R RSP@ 4- DUP RSP! ! ;
+: R> RSP@ @ RDROP ;
