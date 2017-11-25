@@ -7,14 +7,61 @@
 : BASE   7C24 ;
 : STATE  7C28 ;
 
+: rEAX 0 ;
+: rECX 1 ;
+: rEDX 2 ;
+: rEBX 3 ;
+: rESP 4 ;
+: rEBP 5 ;
+: rESI 6 ;
+: rEDI 7 ;
+: aPUSH  50 + C, ;
+: aPOP   58 + C, ;
+: aLODSD AD   C, ;
+: aJMP[EAX]    FF C, E0 C, ;
+: aADD 01 C, ;
+: aSUB 29 C, ;
+: EAX,EBX D8 C, ;
+: aNEXT aLODSD aJMP[EAX] ;
+:A DROP rEAX aPOP
+	aNEXT
+:A DUP  rEAX aPOP
+	rEAX aPUSH
+	rEAX aPUSH
+	aNEXT
+:A SWAP rEAX aPOP
+	rEBX aPOP
+	rEAX aPUSH
+	rEBX aPUSH
+	aNEXT
+:A ROT  rEAX aPOP
+	rEBX aPOP
+	rECX aPOP
+	rEBX aPUSH
+	rEAX aPUSH
+	rECX aPUSH
+	aNEXT
+:A -ROT rEAX aPOP
+	rEBX aPOP
+	rECX aPOP
+	rEAX aPUSH
+	rECX aPUSH
+	rEBX aPUSH
+	aNEXT
+:A +    rEBX aPOP
+	rEAX aPOP
+	aADD EAX,EBX
+	rEAX aPUSH
+	aNEXT
+:A -    rEBX aPOP
+	rEAX aPOP
+	aSUB EAX,EBX
+	rEAX aPUSH
+	aNEXT
 10 BASE !
-
-: DROP SP@ 4+ SP! ;
-: DUP SP@ @ ;
 
 : 0=  0 =  ;
 : 0-  0 SWAP - ;
-: +   0- - ;
 : 1+ -1  - ;
 : 1-  1  - ;
 : 4+ -4  - ;
@@ -59,4 +106,6 @@
 : +! SWAP NEGATE SWAP ;
 : C@ @ 255 AND ;
 : C! SWAP 255 AND OVER @ -256 AND + SWAP ! ;
-: C@C! OVER @ OVER ! 1+ SWAP 1+ SWAP ;
+: C@C! OVER C@ OVER C! 1+ SWAP 1+ SWAP ;
+: >CFA 4+ DUP @ 31 AND + 1+ ;
+: >DFA >CFA 4+ ;

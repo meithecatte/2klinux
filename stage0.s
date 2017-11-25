@@ -170,20 +170,6 @@ PM_Entry:
 .filename:
 	db 'STAGE1  FT '
 
-_KEY:
-	mov ebx, [OFFSET]
-	cmp bx, 0x200
-	jb .gotsector
-	pushad
-	call ReadNextCluster
-	popad
-	xor ebx, ebx
-.gotsector:
-	mov al, [FileBuffer+ebx]
-	inc ebx
-	mov [OFFSET], ebx
-	ret
-
 FindFile:
 	xor ecx, ecx
 	mov cl, 16
@@ -258,6 +244,30 @@ ReadCluster:
 	call CallRM
 	dw DiskRead
 	ret
+
+%macro dict 2
+%strlen dictlen %1
+	db dictlen, %1, %2 & 0xff
+%endmacro
+
+CompressedDictionary:
+	dict 'LIT', LIT
+	dict 'EXIT', EXIT
+	dict '*', MUL_
+	dict '/MOD', DIVMOD
+	dict 'AND', AND_
+	dict '<', LT
+	dict '=', EQ
+	dict '@', FETCH
+	dict '!', STORE
+	dict 'RP@', RPFETCH
+	dict 'RP!', RPSTORE
+	dict 'SP@', SPFETCH
+	dict 'SP!', SPSTORE
+	dict '0BRANCH', ZBRANCH
+	dict 'BRANCH', BRANCH
+	dict 'KEY', KEY
+
 	times 446 - ($ - $$) db 0
 
 PartitionTable:
@@ -441,29 +451,12 @@ EXIT:
 	RPOP esi
 	jmp short doNEXT
 
-SWAP:
-	pop edx
-	pop eax
-	jmp short pushEDXEAXdoNEXT
-
-ROT:
-	pop edx
-	pop ebx
-	pop eax
-pushEBXEDXEAXdoNEXT:
-	push ebx
 pushEDXEAXdoNEXT:
 	push edx
 pushEAXdoNEXT:
 	push eax
 doNEXT:
 	NEXT
-
-SUB_:
-	pop ebx
-	pop eax
-	sub eax, ebx
-	jmp short pushEAXdoNEXT
 
 MUL_:
 	pop eax
@@ -539,6 +532,20 @@ BRANCH:
 KEY:
 	call _KEY
 	jmp short pushEAXdoNEXT
+
+_KEY:
+	mov ebx, [OFFSET]
+	cmp bx, 0x200
+	jb .gotsector
+	pushad
+	call ReadNextCluster
+	popad
+	xor ebx, ebx
+.gotsector:
+	mov al, [FileBuffer+ebx]
+	inc ebx
+	mov [OFFSET], ebx
+	ret
 
 	times 1022 - ($ - $$) db 0
 	dw 0xaa55
