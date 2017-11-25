@@ -4,15 +4,19 @@
 ;  7C00 -  7C0F -> The EDD disk packet
 ;  7C10 -  7C13 -> The LBA of the first FAT sector
 ;  7C14 -  7C17 -> The currently loaded cluster
+;  7C18 -  7C1B -> OFFSET
+;  7C1C -  7C1F -> LATEST
+;  7C20 -  7C23 -> HERE
 ; The general memory map looks like this:
 ;  0000 -  03FF -> Real mode interrupt vector table
 ;  0400 -  04FF -> The BIOS data area
-;  0500 -  77FF -> Currently unassigned. The stack starts at 7A00, but I don't think it will need
-;                  more than 256 bytes.
+;  0500 -  14FF -> FORTH return stack
+;  1500 -  77FF -> the stack, used as the FORTH parameter stack
 ;  7800 -  79FF -> A buffer for one sector of a file or directory
 ;  7A00 -  7BFF -> A buffer for one sector of FAT
 ;  7C00 -  7DFF -> The MBR - the first part of this file
 ;  7E00 -  7FFF -> The VBR - the second part of this file
+;  8000 -  801F -> WORD's buffer
 ;  8000 - 7FFFF -> Unassigned.
 ; 80000 - 9FFFF -> Mostly unassigned, but the end is used by the Extended BIOS Data Area. Its size
 ;                  varies, and this 128 KiB is the maximum
@@ -29,6 +33,9 @@ org 0x7c00
 
 %define FATStart                     ebp+16
 %define CurrentCluster               ebp+20
+%define OFFSET                       ebp+24
+%define LATEST                       ebp+28
+%define HERE                         ebp+32
 
 %define FATNameLength                11
 %define DirAttributes                11
@@ -49,6 +56,11 @@ org 0x7c00
 %define Selector_Code16              16
 %define Selector_Code32              8
 %define Selector_Data                24
+
+%macro NEXT 0
+	lodsd
+	jmp [eax]
+%endmacro
 
 MBR:
 	jmp 0:start
@@ -129,10 +141,67 @@ PM_Entry:
 	call ReadCluster
 	mov edi, .filename
 	call FindFile
+
+	mov edi, 0x1500 ; initialize the return stack
 	cli
 	hlt
 .filename:
-	db 'TESTING TXT'
+	db 'STAGE1  F  '
+
+;DROP:
+;	pop eax
+;	jmp short doNEXT
+;DUP:
+;	pop eax
+;	push eax
+;	push eax
+;	jmp short doNEXT
+
+LIT:
+	lodsd
+	push eax
+	jmp short doNEXT
+
+SWAP:
+	pop eax
+	pop ebx
+	push eax
+	push ebx
+	jmp short doNEXT
+
+ROT:
+	pop eax
+	pop ebx
+	pop ecx
+	push ebx
+	push eax
+	push ecx
+	jmp short doNEXT
+
+ZBRANCH:
+	pop eax
+	or eax, eax
+	jz BRANCH
+	lodsd
+	jmp short doNEXT
+BRANCH:
+	add esi, [esi]
+doNEXT:
+	NEXT
+
+_KEY:
+	mov bx, [OFFSET]
+	cmp bx, 0x200
+	jb .gotsector
+	pushad
+	call ReadNextCluster
+	popad
+	xor bx, bx
+.gotsector:
+	mov al, [FileBuffer+bx]
+	inc bx
+	mov [OFFSET], bx
+	ret
 
 FindFile:
 	xor ecx, ecx
@@ -175,7 +244,9 @@ FindFile:
 	pop edi
 	jnc short FindFile
 .notfound:
-	; TODO
+	xor eax, eax
+	mov word[gs:eax], 0x073f
+	hlt
 ReadNextCluster:
 	mov eax, dword[CurrentCluster]
 	shr eax, 7
@@ -347,6 +418,7 @@ BITS 16
 	mov cr0, eax
 	jmp 0:.rmode
 .rmode:
+	sti
 	xor ax, ax
 	mov ds, ax
 	mov es, ax
@@ -355,6 +427,7 @@ BITS 16
 	mov bp, MBR
 	ret
 GoPM:
+	cli
 	lgdt [GDT]
 	mov ebp, eax
 	mov eax, cr0
