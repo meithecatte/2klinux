@@ -190,17 +190,17 @@ doNEXT:
 	NEXT
 
 _KEY:
-	mov bx, [OFFSET]
+	mov ebx, [OFFSET]
 	cmp bx, 0x200
 	jb .gotsector
 	pushad
 	call ReadNextCluster
 	popad
-	xor bx, bx
+	xor ebx, ebx
 .gotsector:
-	mov al, [FileBuffer+bx]
-	inc bx
-	mov [OFFSET], bx
+	mov al, [FileBuffer+ebx]
+	inc ebx
+	mov [OFFSET], ebx
 	ret
 
 FindFile:
