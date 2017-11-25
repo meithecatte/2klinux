@@ -468,22 +468,18 @@ XOR_:
 	jmp short pushEAXdoNEXT
 
 LT:
-	mov al, 0x9c
-	jmp short doCC
-
-GT:
-	mov al, 0x9f
-	jmp short doCC
-
-EQ:
-	mov al, 0x94
-doCC:
-	mov [doCCsmc+1], al
 	pop ebx
 	pop eax
 	cmp eax, ebx
-doCCsmc:
+	setl al
+	jmp short doCC
+
+EQ:
+	pop ebx
+	pop eax
+	cmp eax, ebx
 	sete al
+doCC:
 	movzx eax, al
 	jmp short pushEAXdoNEXT
 
