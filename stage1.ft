@@ -5,11 +5,12 @@
 : LATEST 31772 ;
 : HERE 31776 ;
 
+: DROP SP@ 4+ SP! ;
+: DUP SP@ @ ;
+
 : 0=  0 =  ;
 : 0-  0 SWAP - ;
 : +   0- - ;
-: / /MOD NIP ;
-: MOD /MOD DROP ;
 : 1+ -1  - ;
 : 1-  1  - ;
 : 4+ -4  - ;
@@ -21,12 +22,7 @@
 : TRUE  1 ;
 : FALSE 0 ;
 : NOT   0= ;
-: <>    = NOT ;
-: <=    > NOT ;
-: >=    < NOT ;
 
-: DROP SP@ 4+ SP! ;
-: DUP SP@ @ ;
 : -ROT ROT ROT ;
 : OVER SP@ 4+ @ ;
 : PICK 1+ 4* SP@ + @ ;
@@ -36,6 +32,15 @@
 : 2DROP SP@ 8 + SP! ;
 : 2DUP OVER OVER ;
 
-: RDROP RSP@ 4+ RSP! ;
-: >R RSP@ 4- DUP RSP! ! ;
-: R> RSP@ @ RDROP ;
+: RDROP RP@ 4+ RP! ;
+: >R RP@ 4- DUP RP! ! ;
+: R@ RP@ @ ;
+: R> R@ RDROP ;
+
+: / /MOD NIP ;
+: MOD /MOD DROP ;
+
+: <>    = NOT ;
+: >=    < NOT ;
+: <=    2DUP < -ROT = OR ;
+: >     <= NOT ;

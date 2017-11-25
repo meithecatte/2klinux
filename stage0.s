@@ -7,6 +7,7 @@
 ;  7C18 -  7C1B -> OFFSET
 ;  7C1C -  7C1F -> LATEST
 ;  7C20 -  7C23 -> HERE
+;  7DDE -  7DFD -> WORD's buffer
 ; The general memory map looks like this:
 ;  0000 -  03FF -> Real mode interrupt vector table
 ;  0400 -  04FF -> The BIOS data area
@@ -16,7 +17,6 @@
 ;  7A00 -  7BFF -> A buffer for one sector of FAT
 ;  7C00 -  7DFF -> The MBR - the first part of this file
 ;  7E00 -  7FFF -> The VBR - the second part of this file
-;  8000 -  801F -> WORD's buffer
 ;  8000 - 7FFFF -> Unassigned.
 ; 80000 - 9FFFF -> Mostly unassigned, but the end is used by the Extended BIOS Data Area. Its size
 ;                  varies, and this 128 KiB is the maximum
@@ -142,20 +142,16 @@ PM_Entry:
 	mov edi, .filename
 	call FindFile
 
-	mov edi, 0x1500 ; initialize the return stack
+	xor eax, eax
+	mov [LATEST], eax
+	mov ah, 0x15
+	mov edi, eax
+	mov ah, 0x80
+	mov [HERE], eax
 	cli
 	hlt
 .filename:
 	db 'STAGE1  FT '
-
-;DROP:
-;	pop eax
-;	jmp short doNEXT
-;DUP:
-;	pop eax
-;	push eax
-;	push eax
-;	jmp short doNEXT
 
 FindFile:
 	xor ecx, ecx
@@ -411,6 +407,11 @@ DOCOL:
 	mov esi, eax
 	jmp short doNEXT
 
+EXIT:
+	mov esi, [edi]
+	add edi, 4
+	jmp short doNEXT
+
 SWAP:
 	pop edx
 	pop eax
@@ -438,15 +439,33 @@ SUB_:
 MUL_:
 	pop eax
 	pop ebx
-	imul eax, ebx
+	imul ebx
 	jmp short pushEAXdoNEXT
 
 DIVMOD:
 	xor edx, edx
 	pop ebx
 	pop eax
-	idiv eax, ebx
+	idiv ebx
 	jmp short pushEDXEAXdoNEXT
+
+AND_:
+	pop ebx
+	pop eax
+	and eax, ebx
+	jmp short pushEAXdoNEXT
+
+OR_:
+	pop ebx
+	pop eax
+	or eax, ebx
+	jmp short pushEAXdoNEXT
+
+XOR_:
+	pop ebx
+	pop eax
+	xor eax, ebx
+	jmp short pushEAXdoNEXT
 
 LT:
 	mov al, 0x9c
@@ -468,11 +487,21 @@ doCCsmc:
 	movzx eax, al
 	jmp short pushEAXdoNEXT
 
-RSPFETCH:
+FETCH:
+	pop eax
+	mov eax, [eax]
+	jmp short pushEAXdoNEXT
+
+STORE:
+	pop eax
+	pop ebx
+	mov [eax], ebx
+	jmp short doNEXT
+RPFETCH:
 	push edi
 	jmp short doNEXT
 
-RSPSTORE:
+RPSTORE:
 	pop edi
 	jmp short doNEXT
 
