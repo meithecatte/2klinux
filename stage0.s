@@ -253,19 +253,6 @@ ReadCluster:
 CompressedDictionary:
 	dict 'LIT', LIT
 	dict 'EXIT', EXIT
-	dict '*', MUL_
-	dict '/MOD', DIVMOD
-	dict 'AND', AND_
-	dict '<', LT
-	dict '=', EQ
-	dict '@', FETCH
-	dict '!', STORE
-	dict 'RP@', RPFETCH
-	dict 'RP!', RPSTORE
-	dict 'SP@', SPFETCH
-	dict 'SP!', SPSTORE
-	dict '0BRANCH', ZBRANCH
-	dict 'BRANCH', BRANCH
 	dict 'KEY', KEY
 
 	times 446 - ($ - $$) db 0
@@ -457,77 +444,6 @@ pushEAXdoNEXT:
 	push eax
 doNEXT:
 	NEXT
-
-MUL_:
-	pop eax
-	pop ebx
-	imul ebx
-	jmp short pushEAXdoNEXT
-
-DIVMOD:
-	xor edx, edx
-	pop ebx
-	pop eax
-	idiv ebx
-	jmp short pushEDXEAXdoNEXT
-
-AND_:
-	pop ebx
-	pop eax
-	and eax, ebx
-	jmp short pushEAXdoNEXT
-
-LT:
-	pop ebx
-	pop eax
-	cmp eax, ebx
-	setl al
-	jmp short doCC
-
-EQ:
-	pop ebx
-	pop eax
-	cmp eax, ebx
-	sete al
-doCC:
-	movzx eax, al
-	jmp short pushEAXdoNEXT
-
-FETCH:
-	pop eax
-	mov eax, [eax]
-	jmp short pushEAXdoNEXT
-
-STORE:
-	pop eax
-	pop ebx
-	mov [eax], ebx
-	jmp short doNEXT
-RPFETCH:
-	push edi
-	jmp short doNEXT
-
-RPSTORE:
-	pop edi
-	jmp short doNEXT
-
-SPFETCH:
-	mov eax, esp
-	jmp short pushEAXdoNEXT
-
-SPSTORE:
-	pop esp
-	jmp short doNEXT
-
-ZBRANCH:
-	pop eax
-	or eax, eax
-	jz BRANCH
-	lodsd
-	jmp short doNEXT
-BRANCH:
-	add esi, [esi]
-	jmp short doNEXT
 
 KEY:
 	call _KEY
