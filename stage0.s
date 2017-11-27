@@ -461,7 +461,7 @@ KEY:
 
 WORD_:
 	call _WORD
-	push WORDBuffer
+	push edx
 	push ecx
 	jmp short doNEXT
 
@@ -490,8 +490,9 @@ _WORD:
 	cmp al, ' '
 	jbe _WORD
 	xor ecx, ecx
+	mov edx, WORDBuffer
 .main_loop:
-	mov [WORDBuffer+ecx], al
+	mov [edx+ecx], al
 	call _KEY
 	cmp al, ' '
 	ja .main_loop
