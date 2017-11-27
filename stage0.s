@@ -174,10 +174,6 @@ PM_Entry:
 	mov ah, 0x80
 	mov [HERE], eax
 
-	call _WORD
-	call _WORD
-	call _WORD
-	call _NUMBER
 	cli
 	hlt
 .filename:
