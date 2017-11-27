@@ -1,6 +1,11 @@
-; This implements FAT32, with the assumption that the sector and cluster sizes are both 512 bytes.
-; Long file names are not supported, but their presence for files we don't care about is not
-; harmful. We use a part of the code section as variables after executing it:
+; This Forth implementation is based on jonesforth - https://github.com/nornagon/jonesforth
+; Any similarities are probably not accidental.
+
+; This bootsector implements FAT32, with the assumption that the sector and cluster sizes are both
+; 512 bytes. Long file names are not supported, but their presence for files we don't care about is
+; not harmful.
+
+; We use a part of the code section as variables after executing it:
 ;  7C00 -  7C0F -> The EDD disk packet
 ;  7C10 -  7C13 -> The LBA of the first FAT sector
 ;  7C14 -  7C17 -> The currently loaded cluster
@@ -10,6 +15,7 @@
 ;  7C24 -  7C27 -> BASE
 ;  7C28 -  7C2B -> STATE
 ;  7DDE -  7DFD -> WORD's buffer
+
 ; The general memory map looks like this:
 ;  0000 -  03FF -> Real mode interrupt vector table
 ;  0400 -  04FF -> The BIOS data area
@@ -25,8 +31,8 @@
 ; A0000 - BFFFF -> Video RAM
 ; C0000 - FFFFF -> ROMs and memory mapped hardware
 
-bits 16
-org 0x7c00
+BITS 16
+ORG 0x7c00
 
 %define DiskPacket            bp
 %define DiskPacketDestOffset  bp+4
@@ -167,6 +173,11 @@ PM_Entry:
 	mov edi, eax
 	mov ah, 0x80
 	mov [HERE], eax
+
+	call _WORD
+	call _WORD
+	call _WORD
+	call _NUMBER
 	cli
 	hlt
 .filename:
@@ -174,6 +185,7 @@ PM_Entry:
 
 FindFile:
 	xor ecx, ecx
+	mov [OFFSET], ecx
 	mov cl, 16
 	mov esi, FileBuffer
 .loop:
@@ -257,6 +269,8 @@ CompressedDictionary:
 	dict 'EXIT', EXIT
 	dict 'KEY', KEY
 	dict 'WORD', WORD_
+	dict 'EMIT', EMIT
+	dict 'NUMBER', NUMBER
 
 	times 446 - ($ - $$) db 0
 
@@ -448,6 +462,7 @@ EXIT:
 	RPOP esi
 	jmp short doNEXT
 
+; pops a word off the stack and prints its lowest 8 bits as a character
 EMIT:
 	pop eax
 	call CallRM
@@ -465,6 +480,18 @@ WORD_:
 	push ecx
 	jmp short doNEXT
 
+NUMBER:
+	pop ecx
+	pop edx
+	call _NUMBER
+	push eax
+	push ecx
+	jmp short doNEXT
+
+; returns a character from the currently loaded file
+; Output:
+;  AL = the character
+; Clobbers EBX
 _KEY:
 	mov ebx, [OFFSET]
 	cmp bx, 0x200
@@ -479,23 +506,60 @@ _KEY:
 	mov [OFFSET], ebx
 	ret
 
-SkipComment:
+; WORD is a FORTH word which reads the next full word of input.
+; Output:
+;  ECX = string length
+;  EDX = string buffer, always equal to WORDBuffer
+; Clobbers EAX and EBX
+..@SkipComment:
 	call _KEY
 	cmp al, 10
-	jne SkipComment
+	jne ..@SkipComment
 _WORD:
 	call _KEY
 	cmp al, '\'
-	je SkipComment
+	je ..@SkipComment
 	cmp al, ' '
 	jbe _WORD
 	xor ecx, ecx
 	mov edx, WORDBuffer
 .main_loop:
 	mov [edx+ecx], al
+	inc ecx
 	call _KEY
 	cmp al, ' '
 	ja .main_loop
+	ret
+
+; Parses a number in the base specified by BASE
+; Input:
+;  ECX = string length
+;  EDX = string buffer
+; Output:
+;  EAX = the number represented in the string buffer
+;  ECX = the number of unparsed characters (may indicate a failure)
+_NUMBER:
+	xor eax, eax
+	xor ebx, ebx
+.loop:
+	mov bl, [edx]
+	inc edx
+	sub bl, '0'
+	jb .end
+	cmp bl, 9
+	jbe .gotdigit
+	sub bl, 'A' - '0'
+	jb .end
+	add bl, 10
+.gotdigit:
+	cmp bl, [BASE]
+	jae .end
+	push edx
+	mul dword[BASE]
+	add eax, ebx
+	pop edx
+	loop .loop
+.end:
 	ret
 
 	times 1022 - ($ - $$) db 0

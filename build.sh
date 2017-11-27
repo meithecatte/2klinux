@@ -39,7 +39,7 @@ truncate -s 64M fs.img
 
 info "Creating a FAT32 filesystem..."
 mkfs.fat -F 32 -S 512 fs.img >/dev/null
-mcopy -i fs.img TESTING.TXT ::
+mcopy -i fs.img stage1.ft ::\STAGE1.FT
 
 info "Creating the disk image..."
 truncate -s $(($(stat -c %s fs.img) + 512)) 1klinux.img
