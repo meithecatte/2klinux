@@ -61,6 +61,10 @@ org 0x7c00
 %define Selector_Code16 0x10
 %define Selector_Data   0x18
 
+%define F_IMMED   0x80
+%define F_HIDDEN  0x20
+%define F_LENMASK 0x1f
+
 %macro NEXT 0
 	lodsd
 	jmp [eax]
@@ -88,8 +92,6 @@ start:
 	mov es, cx
 	dec cx
 	mov fs, cx
-	mov cx, 0xb800
-	mov gs, cx
 	mov byte[..@DiskReadPatch+1], dl
 	sti
 
@@ -211,9 +213,9 @@ FindFile:
 	pop edi
 	jnc short FindFile
 .notfound:
-	xor eax, eax
-	mov word[gs:eax], 0x073f
-	hlt
+	mov al, Error_FileNotFound
+	call CallRM
+	dw Error
 ReadNextCluster:
 	mov eax, dword[CurrentCluster]
 	shr eax, 7
@@ -254,6 +256,7 @@ CompressedDictionary:
 	dict 'LIT', LIT
 	dict 'EXIT', EXIT
 	dict 'KEY', KEY
+	dict 'WORD', WORD_
 
 	times 446 - ($ - $$) db 0
 
@@ -263,7 +266,11 @@ PartitionTable:
 P1LBA:      dd 0
 P1Length:   dd 0
 
-	times 48 db 0
+	times 16 db 0
+
+WORDBuffer:
+
+	times 32 db 0
 
 	dw 0xaa55
 
@@ -426,7 +433,10 @@ BITS 32
 
 LIT:
 	lodsd
-	jmp short pushEAXdoNEXT
+pushEAXdoNEXT:
+	push eax
+doNEXT:
+	NEXT
 
 DOCOL:
 	RPUSH esi
@@ -438,16 +448,22 @@ EXIT:
 	RPOP esi
 	jmp short doNEXT
 
-pushEDXEAXdoNEXT:
-	push edx
-pushEAXdoNEXT:
-	push eax
-doNEXT:
-	NEXT
+EMIT:
+	pop eax
+	call CallRM
+	dw PrintChar
+	jmp short doNEXT
 
 KEY:
 	call _KEY
+	movzx eax, al
 	jmp short pushEAXdoNEXT
+
+WORD_:
+	call _WORD
+	push WORDBuffer
+	push ecx
+	jmp short doNEXT
 
 _KEY:
 	mov ebx, [OFFSET]
@@ -461,6 +477,24 @@ _KEY:
 	mov al, [FileBuffer+ebx]
 	inc ebx
 	mov [OFFSET], ebx
+	ret
+
+SkipComment:
+	call _KEY
+	cmp al, 10
+	jne SkipComment
+_WORD:
+	call _KEY
+	cmp al, '\'
+	je SkipComment
+	cmp al, ' '
+	jbe _WORD
+	xor ecx, ecx
+.main_loop:
+	mov [WORDBuffer+ecx], al
+	call _KEY
+	cmp al, ' '
+	ja .main_loop
 	ret
 
 	times 1022 - ($ - $$) db 0
