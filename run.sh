@@ -1,2 +1,2 @@
 #!/bin/sh
-qemu-system-i386 -drive format=raw,file=1klinux.img
+qemu-system-i386 -curses -drive format=raw,file=gen/2klinux.img

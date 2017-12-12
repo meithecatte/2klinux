@@ -1,12 +1,12 @@
-# 1Klinux
+# 2Klinux
 
-A Linux distribution that bootstraps from two sectors worth of binaries
+A Linux distribution that bootstraps from four sectors worth of binaries
 (and a pile of source code).
 
 ## Assembling
 
 You'll need `yasm` or `nasm` installed. Run the `build.sh` script to
-generate a binary called `stage1`.
+generate a binary called `stage0`.
 
 ## Creating a bootable drive
 

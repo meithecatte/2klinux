@@ -28,33 +28,35 @@ else
 fi
 
 infon "Assembling stage0... "
-$ASM stage0.s -o stage0.bin -l stage0.lst
-MBRFREE="$((0x1BE - 0x$(grep 'times 446'  stage0.lst | awk '{ print $2 }') ))"
-VBRFREE="$((0x3FE - 0x$(grep 'times 1022' stage0.lst | awk '{ print $2 }') ))"
-accent "$MBRFREE + $VBRFREE = $(($MBRFREE + $VBRFREE)) bytes free"
+mkdir -p gen
+rm -rf gen/*
+$ASM stage0.s -o gen/stage0.bin -l gen/stage0.lst
+MBRFREE="$((0x01BE - 0x$(grep 'times 446'  gen/stage0.lst | awk '{ print $2 }') ))"
+RESTFREE="$((0x800 - 0x$(grep 'times 1536' gen/stage0.lst | awk '{ print $2 }') ))"
+accent "$MBRFREE + $RESTFREE = $(($MBRFREE + $RESTFREE)) bytes free"
 
 info "Creating the partition image..."
-rm -f 1klinux.img fs.img
-truncate -s 64M fs.img
+truncate -s 64M gen/fs.img
 
 info "Creating a FAT32 filesystem..."
-mkfs.fat -F 32 -S 512 fs.img >/dev/null
-mcopy -i fs.img stage1.ft ::\STAGE1.FT
+echo "You booted the partition instead of the whole drive. I think you should fix it..." | mkfs.fat -m - -F 32 -S 512 gen/fs.img >/dev/null
+#sed -e $(hexdump -s 1024 -e '/2 "%2X\n"' stage0.bin | sed = | sed -e 'N;s@\n@/@;s@^@s/!!PP!!@;s@$@/@' | paste -sd ';') stage1.ft | mcopy -i fs.img - ::\stage1.ft
+mcopy -i gen/fs.img gen/stage0.bin ::\STGEZERO.BIN
+mcopy -i gen/fs.img     stage1.frt ::\STAGEONE.FRT
 
 info "Creating the disk image..."
-truncate -s $(($(stat -c %s fs.img) + 512)) 1klinux.img
+truncate -s $(($(stat -c %s gen/fs.img) + 512)) gen/2klinux.img
 
 info "Filling the partition table..."
-sfdisk --quiet --no-reread --no-tell-kernel 1klinux.img <<EOF
+sfdisk --quiet --no-reread --no-tell-kernel gen/2klinux.img <<EOF
 label: dos
 unit: sectors
 1
 EOF
 
 info "Copying the filesystem..."
-dd if=fs.img of=1klinux.img conv=notrunc status=none bs=512 seek=1
+dd if=gen/fs.img     of=gen/1klinux.img conv=notrunc status=none bs=512 seek=1
 
 info "Installing stage0.bin..."
-dd if=stage0.bin of=1klinux.img conv=notrunc status=none bs=1 count=446
-dd if=stage0.bin of=1klinux.img conv=notrunc status=none bs=1 count=5 skip=510 seek=510
-dd if=stage0.bin of=1klinux.img conv=notrunc status=none bs=1 count=420 skip=604 seek=604
+dd if=gen/stage0.bin of=gen/2klinux.img conv=notrunc status=none bs=1 count=446
+dd if=gen/stage0.bin of=gen/2klinux.img conv=notrunc status=none bs=1 count=2 skip=510 seek=510
