@@ -1,9 +1,12 @@
 ; This Forth implementation is based on jonesforth - https://github.com/nornagon/jonesforth
 ; Any similarities are probably not accidental.
 
-; This bootsector implements FAT32, with the assumption that the sector and cluster sizes are both
-; 512 bytes. Long file names are not supported, but their presence for files we don't care about is
-; not harmful.
+; The first bootstrap stage of this project is implemented as a bootloader. This bootsector
+; implements FAT32, with the assumption that the sector and cluster sizes are both 512 bytes. Long
+; file names are not supported, but their presence for files we don't care about is not harmful.
+; All disk access is done using EDD, which means problems for very old PCs (like pre-Pentium old)
+; or booting from a floppy. Both of these problems don't concern me, like, at all. The FAT partition
+; with all the files should be the first physical partition of the drive.
 
 ; We use a part of the code section as variables after executing it:
 ;  7C00 -  7C0F -> The EDD disk packet
@@ -20,44 +23,60 @@
 ;  0000 -  03FF -> Real mode interrupt vector table
 ;  0400 -  04FF -> The BIOS data area
 ;  0500 -  14FF -> FORTH return stack
-;  1500 -  77FF -> the stack, used as the FORTH parameter stack
-;  7800 -  79FF -> A buffer for one sector of a file or directory
-;  7A00 -  7BFF -> A buffer for one sector of FAT
+;  1500 -  7BFF -> the stack, used as the FORTH parameter stack
 ;  7C00 -  7DFF -> The MBR - the first part of this file
-;  7E00 -  7FFF -> The VBR - the second part of this file
-;  8000 - 7FFFF -> Unassigned.
+;  7E00 -  83FF -> 3 sectors loaded from the FAT filesystem - the second part of this file
+;  8400 -  85FF -> A buffer for one sector of a file or directory
+;  8600 -  87FF -> A buffer for one sector of FAT
+;  8800 -  89FF -> A buffer for the sector with BPB
+;  8A00 - 7FFFF -> Unassigned.
 ; 80000 - 9FFFF -> Mostly unassigned, but the end is used by the Extended BIOS Data Area. Its size
 ;                  varies, and this 128 KiB is the maximum
 ; A0000 - BFFFF -> Video RAM
 ; C0000 - FFFFF -> ROMs and memory mapped hardware
 
+; Finally, EBP is constantly loaded with the value 0x7C00 to generate shorter instructions for accessing
+; some memory locations.
+
 BITS 16
 ORG 0x7c00
 
-%define DiskPacket            bp
-%define DiskPacketDestOffset  bp+4
-%define DiskPacketDestSegment bp+6
-%define DiskPacketLBA         bp+8
+%define FileBuffer 0x8400
+%define FATBuffer  0x8600
+%define BPBBuffer  0x8800
 
-%define FATStart       ebp+16
-%define CurrentCluster ebp+20
-%define OFFSET         ebp+24
-%define LATEST         ebp+28
-%define HERE           ebp+32
-%define BASE           ebp+36
-%define STATE          ebp+40
+; Constants that start with a lowercase d represent the offset from 0x7C00, and therefore EBP, of some
+; memory address.
 
+; Used by disk access routines
+%define dDiskPacket            0
+%define dDiskPacketDestOffset  4
+%define dDiskPacketDestSegment 6
+%define dDiskPacketLBA         8
+
+; Filesystem support
+%define dFATStart       16
+%define dCurrentCluster 20
+
+; Addresses of the values in the BPB we need to correctly parse the FAT filesystem.
+%define BPBReservedSectors BPBBuffer+14
+%define BPBFATCount        BPBBuffer+16
+%define BPBSectorsPerFAT   BPBBuffer+36
+%define BPBRootCluster     BPBBuffer+44
+
+; Constants related to FAT directory entries
 %define FATNameLength  11
 %define DirAttributes  11
 %define DirHighCluster 20
 %define DirLowCluster  26
 %define DirEntrySize   32
 
-%define FileBuffer 0x7800
-%define FATBuffer  0x7a00
-
-%define INT10_GetVideoMode 0x0f
-%define INT10_SetVideoMode 0x00
+; FORTH variables
+%define dOFFSET 24 ; The address of the next byte KEY will read, relative to the beginning of the 512 byte buffer.
+%define dLATEST 28 ; The LFA of the last FORTH word defined.
+%define dHERE   32 ; The address of the first free byte of memory. This is where any new FORTH definitions will be put.
+%define dBASE   36 ; The number base of the digits parsed by NUMBER. Starts at 16.
+%define dSTATE  40 ; 1 if compiling words, 0 if interpreting.
 
 %define Error_Disk         'Q'
 %define Error_FileNotFound 'R'
@@ -91,36 +110,43 @@ MBR:
 start:
 	cli                             ; Disable the interrupts when setting up the stack
 	xor cx, cx
-	mov bp, MBR                     ; Using bp-relative addressing produces shorter code
-	mov sp, FileBuffer
+	mov bp, MBR
+	mov sp, bp
 	mov ss, cx
 	mov ds, cx
 	mov es, cx
 	dec cx
-	mov fs, cx
-	mov byte[..@DiskReadPatch+1], dl
+	mov fs, cx			; FS is set to 0xFFFF for probing the A20 Gate. Yuck.
+	mov byte[bp-MBR+..@DiskReadPatch+1], dl; Self modifying code, because why not
 	sti
 
-	mov ah, INT10_GetVideoMode      ; Shortest way to clear the screen while preserving
-	int 0x10                        ; the video mode
-	mov ah, INT10_SetVideoMode
+	mov ax, 0x0003                  ; Better to set the video mode explicitly...
 	int 0x10
 
-	mov eax, dword[P1LBA]
-	mov di, VBR
-	push word A20
-	; fallthrough
+	mov eax, dword[P1LBA]           ; Read the first sector of the partition, to get the BPB
+	mov di, BPBBuffer
+	call DiskRead
+
+	movzx eax, word[BPBReservedSectors]
+	add eax, dword[P1LBA]
+	mov dword[bp+dFATStart], eax
+
+	mov eax, dword[BPBRootCluster]
+	call ReadCluster
+	;mov edi, .filename
+	call FindFile
+
 DiskRead:
-	mov dword[DiskPacketLBA], eax
+	mov dword[bp+dDiskPacketLBA], eax
 	xor eax, eax
-	mov dword[DiskPacketLBA+4], eax
-	mov dword[DiskPacket], 0x10010
-	mov word[DiskPacketDestOffset], di
-	mov word[DiskPacketDestSegment], ax
+	mov dword[bp+dDiskPacketLBA+4], eax
+	mov dword[bp+dDiskPacket], 0x10010
+	mov word[bp+dDiskPacketDestOffset], di
+	mov word[bp+dDiskPacketDestSegment], ax
 ..@DiskReadPatch:
 	db 0xB2, 0xFF ; mov dl, (patched at runtime)
 	mov ah, 0x42
-	mov si, DiskPacket
+	mov si, bp
 	int 0x13
 	jnc short Return
 
@@ -153,44 +179,20 @@ PrintChar:
 Return:
 	ret
 
-BITS 32
-PM_Entry:
-	movzx eax, word[BPBReservedSectors]
-	add eax, dword[P1LBA]
-	mov dword[FATStart], eax
-
-	mov eax, dword[BPBRootDirectoryCluster]
-	call ReadCluster
-	mov edi, .filename
-	call FindFile
-
-	xor eax, eax
-	mov [LATEST], eax
-	mov [STATE], eax
-	mov [BASE], eax
-	mov byte[BASE], 0x10
-	mov ah, 0x15
-	mov edi, eax
-	mov ah, 0x80
-	mov [HERE], eax
-
-	cli
-	hlt
-.filename:
-	db 'STAGE1  FT '
-
 FindFile:
-	xor ecx, ecx
-	mov [OFFSET], ecx
+	push si
+.new_sector:
+	xor cx, cx
+	mov [bp+dOFFSET], cx
 	mov cl, 16
-	mov esi, FileBuffer
+	mov si, FileBuffer
 .loop:
-	mov al, byte[esi]
+	mov al, byte[si]
 	or al, al
 	jz short .notfound
 	; normally, you would check if the first byte is 0xE5 (if so, you should skip the entry),
 	; but it won't match the filename anyway
-	test byte[esi+DirAttributes], 0x0e
+	test byte[si+DirAttributes], 0x0e
 	jnz short .next
 	pushad
 	mov cl, FATNameLength
@@ -202,50 +204,51 @@ FindFile:
 	ja .noconvert
 	sub al, 'a' - 'A'
 .noconvert:
-	cmp al, byte[edi]
+	cmp al, byte[di]
 	jne short .nomatch
-	inc edi
+	inc di
 	loop short .cmploop
 	popad
-	mov eax, [esi+DirHighCluster]
+	mov ax, [si+DirHighCluster]
 	shl eax, 16
-	mov ax, [esi+DirLowCluster]
-	jmp short ReadCluster
+	mov ax, [si+DirLowCluster]
+	pop di
+	ret
 .nomatch:
 	popad
 .next:
-	add esi, DirEntrySize
+	add si, DirEntrySize
 	loop short .loop
-	push edi
+	push di
 	call ReadNextCluster
-	pop edi
-	jnc short FindFile
+	pop di
+	jnc short .new_sector
 .notfound:
 	mov al, Error_FileNotFound
-	call CallRM
-	dw Error
+	jmp Error
+
 ReadNextCluster:
-	mov eax, dword[CurrentCluster]
+	mov eax, dword[bp+dCurrentCluster]
 	shr eax, 7
-	add eax, dword[FATStart]
-	mov edi, FATBuffer
-	call CallRM
-	dw DiskRead
-	movzx ebx, byte[CurrentCluster]
+	add eax, dword[bp+dFATStart]
+	mov di, FATBuffer
+	call DiskRead
+	movzx bx, byte[bp+dCurrentCluster]
 	shl bl, 1
-	mov eax, dword[edi+2*ebx]
+	shl bx, 1
+	mov eax, dword[di+bx]
 	cmp eax, 0x0ffffff8
 	cmc
 	jnc short ReadCluster
 	ret
 
 ReadCluster:
-	mov dword[CurrentCluster], eax
+	mov dword[bp+dCurrentCluster], eax
 	mov ebx, eax
 	mov eax, dword[BPBSectorsPerFAT]
 	movzx ecx, byte[BPBFATCount]
 	mul ecx
-	add eax, dword[FATStart]
+	add eax, dword[bp+dFATStart]
 	dec eax
 	dec eax
 	add eax, ebx
@@ -254,19 +257,6 @@ ReadCluster:
 	call CallRM
 	dw DiskRead
 	ret
-
-%macro dict 2
-%strlen dictlen %1
-	db dictlen, %1, %2 & 0xff
-%endmacro
-
-CompressedDictionary:
-	dict 'LIT', LIT
-	dict 'EXIT', EXIT
-	dict 'KEY', KEY
-	dict 'WORD', WORD_
-	dict 'EMIT', EMIT
-	dict 'NUMBER', NUMBER
 
 	times 446 - ($ - $$) db 0
 
@@ -284,29 +274,6 @@ WORDBuffer:
 
 	dw 0xaa55
 
-VBR:
-	jmp VBR
-	nop
-
-	times 11 db 0
-
-BPBReservedSectors:
-	dw 0
-BPBFATCount:
-	db 0
-
-	times 19 db 0
-
-BPBSectorsPerFAT:
-	dd 0
-
-	dd 0
-
-BPBRootDirectoryCluster:
-	dd 0
-
-	times 42 db 0
-BITS 16
 GDT:
 	dw 31
 	dd GDT
@@ -441,6 +408,23 @@ BITS 32
 	mov ebp, MBR
 	ret
 
+BITS 32
+PM_Entry:
+
+	xor eax, eax
+	mov [ebp+dLATEST], eax
+	mov [ebp+dSTATE], eax
+	mov [ebp+dBASE], eax
+	mov byte[ebp+dBASE], 0x10
+	mov ah, 0x15
+	mov edi, eax
+	mov ah, 0x80
+	mov [ebp+dHERE], eax
+
+	cli
+	hlt
+.filename:
+	db 'STAGE1  FT '
 LIT:
 	lodsd
 pushEAXdoNEXT:
@@ -458,38 +442,12 @@ EXIT:
 	RPOP esi
 	jmp short doNEXT
 
-; pops a word off the stack and prints its lowest 8 bits as a character
-EMIT:
-	pop eax
-	call CallRM
-	dw PrintChar
-	jmp short doNEXT
-
-KEY:
-	call _KEY
-	movzx eax, al
-	jmp short pushEAXdoNEXT
-
-WORD_:
-	call _WORD
-	push edx
-	push ecx
-	jmp short doNEXT
-
-NUMBER:
-	pop ecx
-	pop edx
-	call _NUMBER
-	push eax
-	push ecx
-	jmp short doNEXT
-
 ; returns a character from the currently loaded file
 ; Output:
 ;  AL = the character
 ; Clobbers EBX
 _KEY:
-	mov ebx, [OFFSET]
+	mov ebx, [ebp+dOFFSET]
 	cmp bx, 0x200
 	jb .gotsector
 	pushad
@@ -499,7 +457,7 @@ _KEY:
 .gotsector:
 	mov al, [FileBuffer+ebx]
 	inc ebx
-	mov [OFFSET], ebx
+	mov [ebp+dOFFSET], ebx
 	ret
 
 ; WORD is a FORTH word which reads the next full word of input.
@@ -548,15 +506,53 @@ _NUMBER:
 	jb .end
 	add bl, 10
 .gotdigit:
-	cmp bl, [BASE]
+	cmp bl, [ebp+dBASE]
 	jae .end
 	push edx
-	mul dword[BASE]
+	mul dword[ebp+dBASE]
 	add eax, ebx
 	pop edx
 	loop .loop
 .end:
+..@return:
 	ret
 
-	times 1022 - ($ - $$) db 0
-	dw 0xaa55
+; Input:
+;  ECX = name length
+;  EBX = name pointer
+; Output:
+;  EDX = word pointer, or 0 if not found
+_FIND:
+	push esi
+	push edi
+
+	mov edx, [ebp+dLATEST]
+.loop:
+	or edx, edx
+	jz ..@return
+
+	mov al, [edx+4]
+	and al, F_HIDDEN|F_LENMASK
+	cmp al, cl
+	jnz .next
+
+	lea esi, [edx+5]
+	mov edi, ebx
+	push ecx
+	repe cmpsb
+	pop ecx
+	je ..@return
+.next:
+	mov edx, [edx]
+	jmp .loop
+
+%macro dict 2
+%strlen dictlen %1
+	db dictlen, %1, %2 & 0xff
+%endmacro
+
+CompressedDictionary:
+	dict 'LIT', LIT
+	dict 'EXIT', EXIT
+
+	times 1536 - ($ - $$) db 0

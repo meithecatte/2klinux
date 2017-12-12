@@ -1,3 +1,7 @@
+\ this file needs some hardcoded addresses of labels in the assembly file. This is normally done
+\ by the build script, but if you want to do it manually, look for !!PP!! - for example, !!PP!!1
+\ will get replaced by the address of CallRM, because that's the first word after the 1024 bytes
+\ of code in stage0
 \ BASE starts as 16
 \ S0 is most commonly a variable, but here, it's a constant
 : S0 7800 ;
@@ -48,8 +52,7 @@
 
 \ NEXT is used to end an assembly word
 : aLODSD    AD C, ;
-: aJMP[EAX] FF C, 20 C, ;
-: aNEXT aLODSD aJMP[EAX] ;
+: aNEXT aLODSD FF C, 20 C, ;
 
 \ ModR/M bytes assuming r/m, r
 : A,A    C0 C, ;
@@ -72,13 +75,9 @@
 \ r - r/m in op2
 \ b - bytes
 : aSETccAL  0F C,    C, C0 C, ;
-: aNOT[SP]  F7 C, 14 C, 24 C, ;
-: aNEG[SP]  F7 C, 1C C, 24 C, ;
 : aMOVZXrb  0F C, B6 C, ;
 : aADDi8di  83 C, C7 C, ;
 : aSUBi8di  83 C, EF C, ;
-: aIMUL.B   F7 C, EB C, ;
-: aIDIV.B   F7 C, FB C, ;
 : aTEST     85 C, ;
 : aMOVr     8B C, ;
 : aMOVb     88 C, ;
@@ -172,10 +171,10 @@
 
 \ unary operations
 :A INVERT
-	aNOT[SP]
+	FF C, 14 C, 24 C,
 	aNEXT
 :A NEGATE
-	aNEG[SP]
+	FF C, 1C C, 24 C,
 	aNEXT
 :A 1+   aPOPa
 	aINCa
@@ -188,12 +187,12 @@
 
 \ multiply and divide
 :A *    aPOPba
-	aIMUL.EBX
+	F7 C, EB C,
 	aPUSHa
 	aNEXT
 :A /MOD aXOR D,D
 	aPOPba
-	aIDIV.EBX
+	F7 C, FB C,
 	aPUSHd
 	aPUSHa
 	aNEXT
@@ -201,7 +200,7 @@
 : MOD /MOD DROP ;
 
 \ comparisons
-: endCC aSETccAL
+: endCC 0F C, C, C0 C, \ setcc al
 	aMOVZXb A,A
 	aPUSHa
 	aNEXT ;
@@ -224,6 +223,28 @@
 :A U>  97 doCC
 :A U>= 93 doCC
 
+: aCALL E8 C, HERE @ - CELL+ , ;
+: aCLRM !!PP!!1 aCALL DUP FF AND C, 8 RSHIFT C, ;
+
+:A EMIT aPOPa
+	!!PP!!2 aCLRM
+	aNEXT
+:A KEY  !!PP!!3 aCALL
+	aMOVZXb A,A
+	aPUSHa
+	aNEXT
+:A WORD !!PP!!4
+	aPUSHd
+	aPUSHc
+	aNEXT
+:A NUMBER
+	aPOPc
+	aPOPd
+	!!PP!!5
+	aPUSHa
+	aPUSHc
+	aNEXT
+
 \ basic flow control
 :A BRANCH
 	aADDr rSI,[SI]
@@ -231,10 +252,10 @@
 :A 0BRANCH
 	aPOPa
 	aTEST A,A
-	aJZ 04 C,
+	aJZ 4 C,
 \ the false case - skip the offset
-	aLODSD
-	aNEXT
+	aLODSD \ 1 byte
+	aNEXT  \ 3 bytes
 \ the true case - add the offset
 	aADDr rSI,[SI]
 	aNEXT
