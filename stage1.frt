@@ -1,7 +1,3 @@
-\ this file needs some hardcoded addresses of labels in the assembly file. This is normally done
-\ by the build script, but if you want to do it manually, look for !!PP!! - for example, !!PP!!1
-\ will get replaced by the address of CallRM, because that's the first word after the 1024 bytes
-\ of code in stage0
 \ BASE starts as 16
 \ S0 is most commonly a variable, but here, it's a constant
 : S0 7800 ;

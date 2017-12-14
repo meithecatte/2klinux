@@ -81,6 +81,7 @@ ORG 0x7c00
 %define Error_Disk         'Q'
 %define Error_FileNotFound 'R'
 %define Error_A20          'S'
+%define Error_FileTooShort 'T'
 
 %define Selector_Code32 0x08
 %define Selector_Code16 0x10
@@ -116,9 +117,12 @@ start:
 	mov ds, cx
 	mov es, cx
 	dec cx
-	mov fs, cx			; FS is set to 0xFFFF for probing the A20 Gate. Yuck.
-	mov byte[bp-MBR+..@DiskReadPatch+1], dl; Self modifying code, because why not
+	mov fs, cx                                ; FS is set to 0xFFFF for probing the A20 Gate. Yuck.
+	mov byte[..@DiskReadPatch], dl; Self modifying code, because why not
 	sti
+
+	; The initialization code above is only used once. When we get here we can use that memory
+	; as data. All variables except the FORTH ones are free for use.
 
 	mov ax, 0x0003                  ; Better to set the video mode explicitly...
 	int 0x10
@@ -133,55 +137,10 @@ start:
 
 	mov eax, dword[BPBRootCluster]
 	call ReadCluster
-	;mov edi, .filename
-	call FindFile
-
-DiskRead:
-	mov dword[bp+dDiskPacketLBA], eax
-	xor eax, eax
-	mov dword[bp+dDiskPacketLBA+4], eax
-	mov dword[bp+dDiskPacket], 0x10010
-	mov word[bp+dDiskPacketDestOffset], di
-	mov word[bp+dDiskPacketDestSegment], ax
-..@DiskReadPatch:
-	db 0xB2, 0xFF ; mov dl, (patched at runtime)
-	mov ah, 0x42
-	mov si, bp
-	int 0x13
-	jnc short Return
-
-	mov al, ah
-	call PrintByte
-	mov al, Error_Disk
-Error:
-	call PrintChar
-Halt:
-	hlt
-	jmp short Halt
-
-PrintByte:
-	push ax
-	shr al, 4
-	call PrintNibble
-	pop ax
-	and al, 0x0f
-	; fallthrough
-PrintNibble:
-	add al, 'A'
-	; fallthrough
-PrintChar:
-	pusha
-	xor bx, bx
-	mov ah, 0x0e
-	int 0x10
-	popa
-	; fallthrough
-Return:
-	ret
+	mov edi, StageZeroFilename
+	push word LoadPartTwo
 
 FindFile:
-	push si
-.new_sector:
 	xor cx, cx
 	mov [bp+dOFFSET], cx
 	mov cl, 16
@@ -212,8 +171,7 @@ FindFile:
 	mov ax, [si+DirHighCluster]
 	shl eax, 16
 	mov ax, [si+DirLowCluster]
-	pop di
-	ret
+	jmp short ReadCluster
 .nomatch:
 	popad
 .next:
@@ -222,10 +180,10 @@ FindFile:
 	push di
 	call ReadNextCluster
 	pop di
-	jnc short .new_sector
+	jnc short FindFile
 .notfound:
 	mov al, Error_FileNotFound
-	jmp Error
+	jmp short Error
 
 ReadNextCluster:
 	mov eax, dword[bp+dCurrentCluster]
@@ -239,8 +197,7 @@ ReadNextCluster:
 	mov eax, dword[di+bx]
 	cmp eax, 0x0ffffff8
 	cmc
-	jnc short ReadCluster
-	ret
+	jc short ..@Return
 
 ReadCluster:
 	mov dword[bp+dCurrentCluster], eax
@@ -253,10 +210,117 @@ ReadCluster:
 	dec eax
 	add eax, ebx
 
-	mov di, FileBuffer
-	call CallRM
-	dw DiskRead
+	db 0xBF, 0x00 ; mov di, FileBuffer at first, but the address is patched at runtime when loading 7E00-83FF
+..@ReadClusterPatch:
+	db FileBuffer>>8
+	; fallthrough
+
+DiskRead:
+	mov dword[bp+dDiskPacketLBA], eax
+	xor eax, eax
+	mov dword[bp+dDiskPacketLBA+4], eax
+	mov dword[bp+dDiskPacket], 0x10010
+	mov word[bp+dDiskPacketDestOffset], di
+	mov word[bp+dDiskPacketDestSegment], ax
+	db 0xB2 ; mov dl, (patched at runtime)
+..@DiskReadPatch:
+	db 0xFF
+	mov ah, 0x42
+	mov si, bp
+	int 0x13
+	jnc short ..@Return
+
+	mov al, ah
+	call PrintByte
+	mov al, Error_Disk
+	; fallthrough
+Error:
+	call PrintChar
+	; fallthrough
+Halt:
+	hlt
+	jmp short Halt
+
+PrintByte:
+	push ax
+	shr al, 4
+	call PrintNibble
+	pop ax
+	and al, 0x0f
+	; fallthrough
+PrintNibble:
+	add al, 'A'
+	; fallthrough
+PrintChar:
+	pusha
+	xor bx, bx
+	mov ah, 0x0e
+	int 0x10
+	popa
+..@Return:
 	ret
+
+FileTooShortError:
+	cli
+	hlt
+	mov al, Error_FileTooShort
+..@jmpError:
+	jmp short Error
+
+StageZeroFilename:
+	db 'STAGENOTBIN'
+
+LoadPartTwo:
+	mov byte[..@ReadClusterPatch], 0x7E
+	mov cx, 3
+.loop:
+	push cx
+	call ReadNextCluster
+	jc short FileTooShortError
+	add byte[..@ReadClusterPatch], 2
+	pop cx
+	loop .loop
+
+	; try enabling the A20 with 3 different methods
+
+	cli
+	call Check_A20
+	mov ax, 0x2401
+	int 0x15
+	call Check_A20
+
+	call KBC_SendCommand
+	db 0xAD
+
+	call KBC_SendCommand
+	db 0xD0
+
+.readwait:
+	in al, 0x64
+	test al, 1
+	jz .readwait
+
+	in al, 0x60
+	push ax
+
+	call KBC_SendCommand
+	db 0xD1
+
+	pop ax
+	or al, 2
+	out 0x60, al
+
+	call KBC_SendCommand
+	db 0xAE
+
+	call Check_A20
+	in al, 0x92
+	or al, 2
+	and al, 0xfe
+	out 0x92, al
+	call Check_A20
+	mov al, Error_A20
+	jmp short ..@jmpError
 
 	times 446 - ($ - $$) db 0
 
@@ -325,46 +389,6 @@ Check_A20:
 	push dword PM_Entry-2
 	jmp short GoPM
 
-A20:
-	cli
-	call Check_A20
-	mov ax, 0x2401
-	int 0x15
-	call Check_A20
-
-	call KBC_SendCommand
-	db 0xAD
-
-	call KBC_SendCommand
-	db 0xD0
-
-.readwait:
-	in al, 0x64
-	test al, 1
-	jz .readwait
-
-	in al, 0x60
-	push ax
-
-	call KBC_SendCommand
-	db 0xD1
-
-	pop ax
-	or al, 2
-	out 0x60, al
-
-	call KBC_SendCommand
-	db 0xAE
-
-	call Check_A20
-	in al, 0x92
-	or al, 2
-	and al, 0xfe
-	out 0x92, al
-	call Check_A20
-	mov al, Error_A20
-	jmp Error
-
 BITS 32
 CallRM:
 	mov ebp, eax
@@ -423,8 +447,9 @@ PM_Entry:
 
 	cli
 	hlt
-.filename:
-	db 'STAGE1  FT '
+
+StageOneFilename:
+	db 'STAGEONEFRT'
 LIT:
 	lodsd
 pushEAXdoNEXT:
@@ -555,4 +580,4 @@ CompressedDictionary:
 	dict 'LIT', LIT
 	dict 'EXIT', EXIT
 
-	times 1536 - ($ - $$) db 0
+	times 2048 - ($ - $$) db 0x69
