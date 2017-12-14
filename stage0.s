@@ -78,11 +78,6 @@ ORG 0x7c00
 %define dBASE   36 ; The number base of the digits parsed by NUMBER. Starts at 16.
 %define dSTATE  40 ; 1 if compiling words, 0 if interpreting.
 
-%define Error_Disk         'Q'
-%define Error_FileNotFound 'R'
-%define Error_A20          'S'
-%define Error_FileTooShort 'T'
-
 %define Selector_Code32 0x08
 %define Selector_Code16 0x10
 %define Selector_Data   0x18
@@ -182,7 +177,9 @@ FindFile:
 	pop di
 	jnc short FindFile
 .notfound:
-	mov al, Error_FileNotFound
+	mov si, di
+	call PrintText
+	mov si, FileNotFoundMsg
 	jmp short Error
 
 ReadNextCluster:
@@ -232,10 +229,10 @@ DiskRead:
 
 	mov al, ah
 	call PrintByte
-	mov al, Error_Disk
+	mov si, DiskErrorMsg
 	; fallthrough
 Error:
-	call PrintChar
+	call PrintText
 	; fallthrough
 Halt:
 	hlt
@@ -263,15 +260,29 @@ PrintChar:
 ..@Return:
 	ret
 
-FileTooShortError:
-	cli
-	hlt
-	mov al, Error_FileTooShort
-..@jmpError:
-	jmp short Error
+PrintText:
+	lodsb
+	or al, al
+	jz short ..@Return
+	call PrintChar
+	jmp short PrintText
 
 StageZeroFilename:
-	db 'STAGENOTBIN'
+	db 'STAGENOTBIN', 0
+
+FileTooShortMsg:
+	db ' too short', 0
+
+DiskErrorMsg:
+	db ' disk error', 0
+
+FileNotFoundMsg:
+	db ' not found', 0
+
+FileTooShortError:
+	mov si, StageZeroFilename
+	call PrintText
+	jmp short Error
 
 LoadPartTwo:
 	mov byte[..@ReadClusterPatch], 0x7E
@@ -283,9 +294,25 @@ LoadPartTwo:
 	add byte[..@ReadClusterPatch], 2
 	pop cx
 	loop .loop
+	jmp A20
 
-	; try enabling the A20 with 3 different methods
+	times 446 - ($ - $$) db 0
 
+PartitionTable:
+	times 8 db 0
+
+P1LBA:      dd 0
+P1Length:   dd 0
+
+	times 16 db 0
+
+WORDBuffer:
+
+	times 32 db 0
+
+	dw 0xaa55
+
+A20:
 	cli
 	call Check_A20
 	mov ax, 0x2401
@@ -322,24 +349,11 @@ LoadPartTwo:
 	and al, 0xfe
 	out 0x92, al
 	call Check_A20
-	mov al, Error_A20
-	jmp short ..@jmpError
+	mov si, A20ErrorMsg
+	jmp Error
 
-	times 446 - ($ - $$) db 0
-
-PartitionTable:
-	times 8 db 0
-
-P1LBA:      dd 0
-P1Length:   dd 0
-
-	times 16 db 0
-
-WORDBuffer:
-
-	times 32 db 0
-
-	dw 0xaa55
+A20ErrorMsg:
+	db 'A20 error', 0
 
 GDT:
 	dw 31
@@ -377,7 +391,7 @@ KBC_SendCommand:
 	jmp si
 
 Check_A20:
-	; assumes DS = 0
+	; we have set DS to 0 and FS to 0xFFFF and the very beginning
 	mov si, 0x7dfe
 .loop:
 	mov al, byte[si]
