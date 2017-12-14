@@ -249,7 +249,10 @@ PrintByte:
 	and al, 0x0f
 	; fallthrough
 PrintNibble:
-	add al, 'A'
+	add al, '0'
+	cmp al, '9'
+	jbe PrintChar
+	add al, 'A' - '0' - 0x0A
 	; fallthrough
 PrintChar:
 	pusha
