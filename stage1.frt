@@ -1,6 +1,27 @@
+: NIP SWAP DROP ;
+: TUCK SWAP OVER ;
+: 2DROP DROP DROP ;
+: 2DUP OVER OVER ;
+: 2SWAP >R -ROT R> -ROT ;
+: RDROP RP@ 4 + RP! ;
+
+: ?DUP DUP IF DUP THEN ;
+: FALSE 0 ;
+: TRUE FALSE INVERT ;
+: NEGATE INVERT 1+ ;
+
+: / /MOD NIP ;
+: MOD /MOD DROP ;
+: <> = INVERT ;
+: >= < INVERT ;
+: <= > INVERT ;
+: 0<> 0= INVERT ;
+: 0>= 0< INVERT ;
+: 0<= 0> INVERT ;
+
 \ BASE starts as 16
 \ S0 is most commonly a variable, but here, it's a constant
-: S0 7800 ;
+: S0 7C00 ;
 : R0 1500 ;
 
 \ OFFSET is the offset in the currently loaded sector of a file

@@ -8,16 +8,29 @@
 ; or booting from a floppy. Both of these problems don't concern me, like, at all. The FAT partition
 ; with all the files should be the first physical partition of the drive.
 
+; EBP is constantly loaded with the value 0x7C00 to generate shorter instructions for accessing
+; some memory locations. Constants that start with a lowercase d represent the offset from 0x7C00, and therefore EBP, of some
+; memory address.
+
 ; We use a part of the code section as variables after executing it:
 ;  7C00 -  7C0F -> The EDD disk packet
+%define dDiskPacket            0
+%define dDiskPacketDestOffset  4
+%define dDiskPacketDestSegment 6
+%define dDiskPacketLBA         8
 ;  7C10 -  7C13 -> The LBA of the first FAT sector
+%define dFATStart 16
 ;  7C14 -  7C17 -> The currently loaded cluster
-;  7C18 -  7C1B -> OFFSET
-;  7C1C -  7C1F -> LATEST
-;  7C20 -  7C23 -> HERE
-;  7C24 -  7C27 -> BASE
-;  7C28 -  7C2B -> STATE
-;  7DDE -  7DFD -> WORD's buffer
+%define dCurrentCluster 20
+;  7C18 -  7C2B -> Forth variables, all are 4 bytes long
+; if any of these addresses gets modified, make sure to change the stage 1 forth file too
+%define dOFFSET 24 ; The address of the next byte KEY will read, relative to the beginning of the 512 byte buffer.
+%define dLATEST 28 ; The LFA of the last FORTH word defined.
+%define dHERE   32 ; The address of the first free byte of memory. This is where any new FORTH definitions will be put.
+%define dBASE   36 ; The number base of the digits parsed by NUMBER. Starts at 16.
+%define dSTATE  40 ; 1 if compiling words, 0 if interpreting.
+
+; The last two partition entries are reused as a buffer for WORD
 
 ; The general memory map looks like this:
 ;  0000 -  03FF -> Real mode interrupt vector table
@@ -27,36 +40,20 @@
 ;  7C00 -  7DFF -> The MBR - the first part of this file
 ;  7E00 -  83FF -> 3 sectors loaded from the FAT filesystem - the second part of this file
 ;  8400 -  85FF -> A buffer for one sector of a file or directory
+%define FileBuffer 0x8400
 ;  8600 -  87FF -> A buffer for one sector of FAT
+%define FATBuffer  0x8600
 ;  8800 -  89FF -> A buffer for the sector with BPB
+%define BPBBuffer  0x8800
 ;  8A00 - 7FFFF -> Unassigned.
+%define FORTHMemoryStart 0x8A00
 ; 80000 - 9FFFF -> Mostly unassigned, but the end is used by the Extended BIOS Data Area. Its size
 ;                  varies, and this 128 KiB is the maximum
 ; A0000 - BFFFF -> Video RAM
 ; C0000 - FFFFF -> ROMs and memory mapped hardware
 
-; Finally, EBP is constantly loaded with the value 0x7C00 to generate shorter instructions for accessing
-; some memory locations.
-
 BITS 16
 ORG 0x7c00
-
-%define FileBuffer 0x8400
-%define FATBuffer  0x8600
-%define BPBBuffer  0x8800
-
-; Constants that start with a lowercase d represent the offset from 0x7C00, and therefore EBP, of some
-; memory address.
-
-; Used by disk access routines
-%define dDiskPacket            0
-%define dDiskPacketDestOffset  4
-%define dDiskPacketDestSegment 6
-%define dDiskPacketLBA         8
-
-; Filesystem support
-%define dFATStart       16
-%define dCurrentCluster 20
 
 ; Addresses of the values in the BPB we need to correctly parse the FAT filesystem.
 %define BPBReservedSectors BPBBuffer+14
@@ -71,17 +68,11 @@ ORG 0x7c00
 %define DirLowCluster  26
 %define DirEntrySize   32
 
-; FORTH variables
-%define dOFFSET 24 ; The address of the next byte KEY will read, relative to the beginning of the 512 byte buffer.
-%define dLATEST 28 ; The LFA of the last FORTH word defined.
-%define dHERE   32 ; The address of the first free byte of memory. This is where any new FORTH definitions will be put.
-%define dBASE   36 ; The number base of the digits parsed by NUMBER. Starts at 16.
-%define dSTATE  40 ; 1 if compiling words, 0 if interpreting.
-
 %define Selector_Code32 0x08
 %define Selector_Code16 0x10
 %define Selector_Data   0x18
 
+; Forth related constants and macros
 %define F_IMMED   0x80
 %define F_HIDDEN  0x20
 %define F_LENMASK 0x1f
@@ -89,16 +80,6 @@ ORG 0x7c00
 %macro NEXT 0
 	lodsd
 	jmp [eax]
-%endmacro
-
-%macro RPUSH 1
-	sub edi, 4
-	mov [edi], %1
-%endmacro
-
-%macro RPOP 1
-	mov %1, [edi]
-	add edi, 4
 %endmacro
 
 MBR:
@@ -130,11 +111,14 @@ start:
 	add eax, dword[P1LBA]
 	mov dword[bp+dFATStart], eax
 
+	mov di, StageZeroFilename
+	push word LoadPartTwo
+	; fallthrough
+FindFileRoot:
+	push di
 	mov eax, dword[BPBRootCluster]
 	call ReadCluster
-	mov edi, StageZeroFilename
-	push word LoadPartTwo
-
+	pop di
 FindFile:
 	xor cx, cx
 	mov [bp+dOFFSET], cx
@@ -270,31 +254,19 @@ PrintText:
 StageZeroFilename:
 	db 'STAGENOTBIN', 0
 
-FileTooShortMsg:
-	db ' too short', 0
-
 DiskErrorMsg:
 	db ' disk error', 0
 
 FileNotFoundMsg:
 	db ' not found', 0
 
-FileTooShortError:
-	mov si, StageZeroFilename
-	call PrintText
-	jmp short Error
-
 LoadPartTwo:
 	mov byte[..@ReadClusterPatch], 0x7E
-	mov cx, 3
 .loop:
-	push cx
 	call ReadNextCluster
-	jc short FileTooShortError
+	jc A20
 	add byte[..@ReadClusterPatch], 2
-	pop cx
-	loop .loop
-	jmp A20
+	jmp short .loop
 
 	times 446 - ($ - $$) db 0
 
@@ -449,40 +421,483 @@ BITS 32
 	mov ebp, MBR
 	ret
 
+StageOneFilename:
+	db 'STAGEONEFRT', 0
+
 BITS 32
 PM_Entry:
+	mov di, StageOneFilename
+	call CallRM
+	dw FindFileRoot
 
 	xor eax, eax
 	mov [ebp+dLATEST], eax
 	mov [ebp+dSTATE], eax
 	mov [ebp+dBASE], eax
 	mov byte[ebp+dBASE], 0x10
-	mov ah, 0x15
-	mov edi, eax
-	mov ah, 0x80
+	mov ah, FORTHMemoryStart >> 8
 	mov [ebp+dHERE], eax
+	mov ah, 0x15
+	xchg edi, eax
 
-	cli
-	hlt
-
-StageOneFilename:
-	db 'STAGEONEFRT'
-LIT:
-	lodsd
-pushEAXdoNEXT:
-	push eax
-doNEXT:
+	mov eax, QUIT
+	; fallthrough
+DOCOL:
+	sub edi, 4
+	mov [edi], esi
+	add eax, 4 ; skip codeword
+	xchg esi, eax
 	NEXT
 
-DOCOL:
-	RPUSH esi
-	add eax, 4 ; skip codeword
-	mov esi, eax
-	jmp short doNEXT
-
+QUIT:
+link_EXIT:
+	dd 0
+	db 4, 'EXIT'
 EXIT:
-	RPOP esi
-	jmp short doNEXT
+	dd code_EXIT
+code_EXIT:
+	mov esi, [edi]
+	add edi, 4
+	NEXT
+
+link_LIT:
+	dd link_EXIT
+	db 3, 'LIT'
+LIT:
+	dd code_LIT
+code_LIT:
+	lodsd
+	push eax
+	NEXT
+
+link_DROP:
+	dd link_LIT
+	db 4, 'DROP'
+	dd code_DROP
+code_DROP:
+	pop eax
+	NEXT
+
+link_SWAP:
+	dd link_DROP
+	db 4, 'SWAP'
+	dd code_SWAP
+code_SWAP:
+	pop eax
+	pop ebx
+	push eax
+	push ebx
+	NEXT
+
+link_DUP:
+	dd link_SWAP
+	db 3, 'DUP'
+	dd code_DUP
+code_DUP:
+	push dword[esp]
+	NEXT
+
+link_OVER:
+	dd link_DUP
+	db 4, 'OVER'
+	dd code_OVER
+code_OVER:
+	push dword[esp+4]
+	NEXT
+
+link_ROT:
+	dd link_OVER
+	db 3, 'ROT'
+	dd code_ROT
+code_ROT:
+	pop eax
+	pop ebx
+	pop ecx
+	push ebx
+	push eax
+	push ecx
+	NEXT
+
+link_NROT:
+	dd link_ROT
+	db 4, '-ROT'
+	dd code_NROT
+code_NROT:
+	pop eax
+	pop ebx
+	pop ecx
+	push eax
+	push ecx
+	push ebx
+	NEXT
+
+link_INC:
+	dd link_NROT
+	db 2, '1+'
+	dd code_INC
+code_INC:
+	inc dword[esp]
+	NEXT
+
+link_DEC:
+	dd link_INC
+	db 2, '1-'
+	dd code_DEC
+code_DEC:
+	dec dword[esp]
+	NEXT
+
+link_4INC:
+	dd link_DEC
+	db 2, '4+'
+	dd code_4INC
+code_4INC:
+	add dword[esp], 4
+	NEXT
+
+link_4DEC:
+	dd link_4INC
+	db 2, '4-'
+	dd code_4DEC
+code_4DEC:
+	sub dword[esp], 4
+	NEXT
+
+link_ADD:
+	dd link_4DEC
+	db 1, '+'
+	dd code_ADD
+code_ADD:
+	pop eax
+	add dword[esp], eax
+	NEXT
+
+link_SUB:
+	dd link_ADD
+	db 1, '-'
+	dd code_SUB
+code_SUB:
+	pop eax
+	sub dword[esp], eax
+	NEXT
+
+link_MUL:
+	dd link_SUB
+	db 1, '*'
+	dd code_MUL
+code_MUL:
+	pop ecx
+	pop eax
+	imul ecx
+	push eax
+	NEXT
+
+link_DIVMOD:
+	dd link_MUL
+	db 4, '/MOD'
+	dd code_DIVMOD
+code_DIVMOD:
+	pop ecx
+	pop eax
+	cdq
+	idiv ecx
+	push edx
+	push eax
+	NEXT
+
+link_EQ:
+	dd link_DIVMOD
+	db 1, '='
+	dd code_EQ
+code_EQ:
+	pop ecx
+	pop ebx
+	xor eax, eax
+	cmp ebx, ecx
+	setne al
+	dec eax
+	push eax
+	NEXT
+
+link_LT:
+	dd link_EQ
+	db 1, '<'
+	dd code_LT
+code_LT:
+	pop ecx
+	pop ebx
+	xor eax, eax
+	cmp ebx, ecx
+	setnl al
+	dec eax
+	push eax
+	NEXT
+
+link_GT:
+	dd link_LT
+	db 1, '>'
+	dd code_GT
+code_GT:
+	pop ecx
+	pop ebx
+	xor eax, eax
+	cmp ebx, ecx
+	setng al
+	dec eax
+	push eax
+	NEXT
+
+link_ZEQ:
+	dd link_GT
+	db 2, '0='
+	dd code_ZEQ
+code_ZEQ:
+	pop ebx
+	xor eax, eax
+	test ebx, ebx
+	setne al
+	dec eax
+	push eax
+	NEXT
+
+link_ZLT:
+	dd link_ZEQ
+	db 2, '0<'
+	dd code_ZLT
+code_ZLT:
+	pop ebx
+	xor eax, eax
+	test ebx, ebx
+	setnl al
+	dec eax
+	push eax
+	NEXT
+
+link_ZGT:
+	dd link_ZLT
+	db 2, '0>'
+	dd code_ZGT
+code_ZGT:
+	pop ebx
+	xor eax, eax
+	test ebx, ebx
+	setng al
+	dec eax
+	push eax
+	NEXT
+
+link_AND:
+	dd link_ZGT
+	db 3, 'AND'
+	dd code_AND
+code_AND:
+	pop eax
+	and dword[esp], eax
+	NEXT
+
+link_OR:
+	dd link_AND
+	db 2, 'OR'
+	dd code_OR
+code_OR:
+	pop eax
+	or dword[esp], eax
+	NEXT
+
+link_XOR:
+	dd link_OR
+	db 3, 'XOR'
+	dd code_XOR
+code_XOR:
+	pop eax
+	xor dword[esp], eax
+	NEXT
+
+link_INVERT:
+	dd link_XOR
+	db 6, 'INVERT'
+	dd code_INVERT
+code_INVERT:
+	not dword[esp]
+	NEXT
+
+link_STORE:
+	dd link_INVERT
+	db 1, '!'
+	dd code_STORE
+code_STORE:
+	pop ebx
+	pop eax
+	mov [ebx], eax
+	NEXT
+
+link_FETCH:
+	dd link_STORE
+	db 1, '@'
+	dd code_FETCH
+code_FETCH:
+	pop eax
+	mov eax, [eax]
+	push eax
+	NEXT
+
+link_ADDSTORE:
+	dd link_FETCH
+	db 2, '+!'
+	dd code_ADDSTORE
+code_ADDSTORE:
+	pop ebx
+	pop eax
+	add [ebx], eax
+	NEXT
+
+link_SUBSTORE:
+	dd link_ADDSTORE
+	db 2, '-!'
+	dd code_SUBSTORE
+code_SUBSTORE:
+	pop ebx
+	pop eax
+	sub [ebx], eax
+	NEXT
+
+link_COMMA:
+	dd link_SUBSTORE
+	db 1, ','
+	dd code_COMMA
+code_COMMA:
+	lea edx, [ebp+dHERE]
+	mov eax, [edx]
+	pop dword[eax]
+	add dword[edx], 4
+	NEXT
+
+link_CSTORE:
+	dd link_COMMA
+	db 2, 'C!'
+	dd code_CSTORE
+code_CSTORE:
+	pop ebx
+	pop eax
+	mov [ebx], al
+	NEXT
+
+link_CFETCH:
+	dd link_CSTORE
+	db 2, 'C@'
+	dd code_CFETCH
+code_CFETCH:
+	pop eax
+	movzx eax, byte[eax]
+	push eax
+	NEXT
+
+link_CCOMMA:
+	dd link_CFETCH
+	db 2, 'C,'
+	dd code_CCOMMA
+code_CCOMMA:
+	lea edx, [ebp+dHERE]
+	mov eax, [edx]
+	pop ebx
+	mov [eax], bl
+	inc dword[edx]
+	NEXT
+
+link_DOCOL:
+	dd link_CFETCH
+	db 5, 'DOCOL'
+	dd code_DOCOL
+code_DOCOL:
+	push dword DOCOL
+	NEXT
+
+link_TOR:
+	dd link_DOCOL
+	db 2, '>R'
+	dd code_TOR
+code_TOR:
+	pop eax
+	sub edi, 4
+	mov [edi], eax
+	NEXT
+
+link_FROMR:
+	dd link_TOR
+	db 2, 'R>'
+	dd code_FROMR
+code_FROMR:
+	push dword[edi]
+	add edi, 4
+	NEXT
+
+link_RPEEK:
+	dd link_FROMR
+	db 2, 'R@'
+	dd code_RPEEK
+code_RPEEK:
+	push dword[edi]
+	NEXT
+
+link_RPSTORE:
+	dd link_RPEEK
+	db 3, 'RP!'
+	dd code_RPSTORE
+code_RPSTORE:
+	pop edi
+	NEXT
+
+link_RPFETCH:
+	dd link_RPSTORE
+	db 3, 'RP@'
+	dd code_RPFETCH
+code_RPFETCH:
+	push edi
+	NEXT
+
+link_SPSTORE:
+	dd link_RPFETCH
+	db 3, 'SP!'
+	dd code_SPSTORE
+code_SPSTORE:
+	pop esp
+	NEXT
+
+link_SPFETCH:
+	dd link_SPSTORE
+	db 3, 'SP@'
+	dd code_SPFETCH
+code_SPFETCH:
+	mov eax, esp
+	push eax
+	NEXT
+
+link_KEY:
+	dd link_SPFETCH
+	db 3, 'KEY'
+	dd code_KEY
+code_KEY:
+	call _KEY
+	push eax
+	NEXT
+
+link_EMIT:
+	dd link_KEY
+	db 4, 'EMIT'
+	dd code_EMIT
+code_EMIT:
+	pop eax
+	call CallRM
+	dw PrintChar
+	NEXT
+
+link_CREATE:
+	dd link_EMIT
+	db 6, 'CREATE'
+	dd code_CREATE
+code_CREATE:
+	pop ecx
+	pop ebx
 
 ; returns a character from the currently loaded file
 ; Output:
@@ -493,14 +908,23 @@ _KEY:
 	cmp bx, 0x200
 	jb .gotsector
 	pushad
-	call ReadNextCluster
+	call CallRM
+	dw ReadNextCluster
+	jc .eof
 	popad
 	xor ebx, ebx
 .gotsector:
+	xor eax, eax
 	mov al, [FileBuffer+ebx]
 	inc ebx
 	mov [ebp+dOFFSET], ebx
 	ret
+.eof:
+	mov si, EOFErrorMsg
+	call CallRM
+	dw Error
+EOFErrorMsg:
+	db 'EOF in FORTH source', 0
 
 ; WORD is a FORTH word which reads the next full word of input.
 ; Output:
@@ -587,14 +1011,5 @@ _FIND:
 .next:
 	mov edx, [edx]
 	jmp .loop
-
-%macro dict 2
-%strlen dictlen %1
-	db dictlen, %1, %2 & 0xff
-%endmacro
-
-CompressedDictionary:
-	dict 'LIT', LIT
-	dict 'EXIT', EXIT
 
 	times 2048 - ($ - $$) db 0x69
