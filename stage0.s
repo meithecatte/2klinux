@@ -797,11 +797,10 @@ link_CCOMMA:
 	db 2, 'C,'
 	dd code_CCOMMA
 code_CCOMMA:
-	lea edx, [ebp+dHERE]
-	mov eax, [edx]
-	pop ebx
-	mov [eax], bl
-	inc dword[edx]
+	mov edx, [ebp+dHERE]
+	pop eax
+	mov [edx], al
+	inc dword[ebp+dHERE]
 	NEXT
 
 link_DOCOL:
