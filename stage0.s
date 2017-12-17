@@ -805,7 +805,7 @@ code_CCOMMA:
 	NEXT
 
 link_DOCOL:
-	dd link_CFETCH
+	dd link_CCOMMA
 	db 5, 'DOCOL'
 	dd code_DOCOL
 code_DOCOL:
