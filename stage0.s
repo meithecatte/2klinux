@@ -244,6 +244,12 @@ PrintHexDigit:
 	; fallthrough
 PrintChar:
 	pusha
+	cmp al, 10
+	jne .skipcr
+	mov al, 13
+	call PrintChar
+	mov al, 10
+.skipcr:
 	xor bx, bx
 	mov ah, 0x0e
 	int 0x10
@@ -415,7 +421,7 @@ BITS 16
 	mov ds, ax
 	mov es, ax
 	mov ss, ax
-	mov eax, ebp
+	xchg eax, ebp
 	mov bp, MBR
 	ret
 GoPM:
