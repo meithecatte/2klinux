@@ -8,9 +8,9 @@
 ; or booting from a floppy. Both of these problems don't concern me, like, at all. The FAT partition
 ; with all the files should be the first physical partition of the drive.
 
-; EBP is constantly loaded with the value 0x7C00 to generate shorter instructions for accessing
-; some memory locations. Constants that start with a lowercase d represent the offset from 0x7C00, and therefore EBP, of some
-; memory address.
+; EBP is constantly set to the value 0x7C00 to generate shorter instructions for accessing some
+; memory locations. Constants that start with a lowercase d represent the offset from 0x7C00, and
+; therefore EBP, of some memory address.
 
 ; We use a part of the code section as variables after executing it:
 ;  7C00 -  7C0F -> The EDD disk packet
@@ -18,19 +18,15 @@
 %define dDiskPacketDestOffset  4
 %define dDiskPacketDestSegment 6
 %define dDiskPacketLBA         8
-;  7C10 -  7C13 -> The LBA of the first FAT sector
-%define dFATStart 16
-;  7C14 -  7C17 -> The currently loaded cluster
-%define dCurrentCluster 20
-;  7C18 -  7C2B -> Forth variables, all are 4 bytes long
-; if any of these addresses gets modified, make sure to change the stage 1 forth file too
-%define dOFFSET 24 ; The address of the next byte KEY will read, relative to the beginning of the 512 byte buffer.
-%define dLATEST 28 ; The LFA of the last FORTH word defined.
-%define dHERE   32 ; The address of the first free byte of memory. This is where any new FORTH definitions will be put.
-%define dBASE   36 ; The number base of the digits parsed by NUMBER. Starts at 16.
-%define dSTATE  40 ; 1 if compiling words, 0 if interpreting.
+;  7C10 -  7C13 -> The currently loaded cluster
+%define dCurrentCluster 16
+;  7C14 -  7C23 -> Forth variables, all are 4 bytes long
+%define dOFFSET 20 ; The address of the next byte KEY will read, relative to FileBuffer
+%define dLATEST 24 ; The LFA of the last Forth word defined.
+%define dHERE   28 ; The address of the first free byte of Forth memory.
+%define dSTATE  32 ; 1 if compiling words, 0 if interpreting.
 
-; The last two partition entries are reused as a buffer for WORD
+; The last two partition entries are reused as a buffer for WORD.
 
 ; The general memory map looks like this:
 ;  0000 -  03FF -> Real mode interrupt vector table
@@ -68,19 +64,10 @@ ORG 0x7c00
 %define DirLowCluster  26
 %define DirEntrySize   32
 
+; Selector constants according to the layout of the GDT
 %define Selector_Code32 0x08
 %define Selector_Code16 0x10
 %define Selector_Data   0x18
-
-; Forth related constants and macros
-%define F_IMMED   0x80
-%define F_HIDDEN  0x20
-%define F_LENMASK 0x1f
-
-%macro NEXT 0
-	lodsd
-	jmp [eax]
-%endmacro
 
 MBR:
 	jmp 0:start
@@ -107,9 +94,17 @@ start:
 	mov di, BPBBuffer
 	call DiskRead
 
-	movzx eax, word[BPBReservedSectors]
-	add eax, dword[P1LBA]
-	mov dword[bp+dFATStart], eax
+	movzx ebx, word[BPBReservedSectors]
+	add ebx, dword[P1LBA]
+	mov dword[..@ReadNextClusterOffsetPatch], ebx
+
+	mov eax, dword[BPBSectorsPerFAT]
+	movzx ecx, byte[BPBFATCount]
+	mul ecx
+	add eax, ebx
+	dec eax
+	dec eax
+	mov dword[..@ReadClusterOffsetPatch], eax
 
 	mov di, StageZeroFilename
 	push word LoadPartTwo
@@ -120,8 +115,8 @@ FindFileRoot:
 	call ReadCluster
 	pop di
 FindFile:
-	xor cx, cx
-	mov [bp+dOFFSET], cx
+	xor ecx, ecx
+	mov [bp+dOFFSET], ecx
 	mov cl, 16
 	mov si, FileBuffer
 .loop:
@@ -169,7 +164,10 @@ FindFile:
 ReadNextCluster:
 	mov eax, dword[bp+dCurrentCluster]
 	shr eax, 7
-	add eax, dword[bp+dFATStart]
+	db 0x66, 0x05 ; add eax, imm32
+..@ReadNextClusterOffsetPatch:
+	dd 0
+
 	mov di, FATBuffer
 	call DiskRead
 	movzx bx, byte[bp+dCurrentCluster]
@@ -182,17 +180,12 @@ ReadNextCluster:
 
 ReadCluster:
 	mov dword[bp+dCurrentCluster], eax
-	mov ebx, eax
-	mov eax, dword[BPBSectorsPerFAT]
-	movzx ecx, byte[BPBFATCount]
-	mul ecx
-	add eax, dword[bp+dFATStart]
-	dec eax
-	dec eax
-	add eax, ebx
+	db 0x66, 0x05 ; add eax, imm32
+..@ReadClusterOffsetPatch:
+	dd 0
 
 	db 0xBF, 0x00 ; mov di, FileBuffer at first, but the address is patched at runtime when loading 7E00-83FF
-..@ReadClusterPatch:
+..@ReadClusterDestinationPatch:
 	db FileBuffer>>8
 	; fallthrough
 
@@ -251,6 +244,12 @@ PrintText:
 	call PrintChar
 	jmp short PrintText
 
+ReadNextCluster_ErrorOnEOF:
+	call ReadNextCluster
+	jnc short ..@Return
+	mov si, EOFErrorMsg
+	jmp short Error
+
 StageZeroFilename:
 	db 'STAGENOTBIN', 0
 
@@ -260,12 +259,15 @@ DiskErrorMsg:
 FileNotFoundMsg:
 	db ' not found', 0
 
+EOFErrorMsg:
+	db 'EOF error', 0
+
 LoadPartTwo:
-	mov byte[..@ReadClusterPatch], 0x7E
+	mov byte[..@ReadClusterDestinationPatch], 0x7E
 .loop:
 	call ReadNextCluster
 	jc A20
-	add byte[..@ReadClusterPatch], 2
+	add byte[..@ReadClusterDestinationPatch], 2
 	jmp short .loop
 
 	times 446 - ($ - $$) db 0
@@ -421,10 +423,21 @@ BITS 32
 	mov ebp, MBR
 	ret
 
+; Here is where the actual Forth implementation starts. In contrast to jonesforth, we are using
+; direct threaded code. Also, the link fields in the dictionary are relative. XXX: CREATE and FIND
+; still need to be changed to reflect this, but I'm currently debugging something unrelated.
+%macro NEXT 0
+	lodsd
+	jmp eax
+%endmacro
+
+%define F_IMMED   0x80
+%define F_HIDDEN  0x20
+%define F_LENMASK 0x1f
+
 StageOneFilename:
 	db 'STAGEONEFRT', 0
 
-BITS 32
 PM_Entry:
 	mov di, StageOneFilename
 	call CallRM
@@ -433,56 +446,85 @@ PM_Entry:
 	xor eax, eax
 	mov [ebp+dLATEST], eax
 	mov [ebp+dSTATE], eax
-	mov [ebp+dBASE], eax
-	mov byte[ebp+dBASE], 0x10
 	mov ah, FORTHMemoryStart >> 8
 	mov [ebp+dHERE], eax
 	mov ah, 0x15
 	xchg edi, eax
 
-	mov eax, QUIT
-	; fallthrough
+	jmp short QUIT
 DOCOL:
 	sub edi, 4
 	mov [edi], esi
-	add eax, 4 ; skip codeword
-	xchg esi, eax
+	pop esi
 	NEXT
 
+link_QUIT:
+	dw 0
+	db 4, 'QUIT'
 QUIT:
+	call DOCOL
+.loop:
+	dd KEY, EMIT
+	dd BRANCH, .loop
+
+link_R0:
+	dw $-link_QUIT
+	db 2, 'R0'
+R0:
+	push dword 0x1500
+	NEXT
+
+link_OFFSET:
+	dw $-link_R0
+	db 6, 'OFFSET'
+OFFSET:
+	lea eax, [ebp+dOFFSET]
+	push eax
+	NEXT
+
+link_LATEST:
+	dw $-link_OFFSET
+	db 6, 'LATEST'
+LATEST:
+	lea eax, [ebp+dLATEST]
+	push eax
+	NEXT
+
+link_HERE:
+	dw $-link_LATEST
+	db 4, 'HERE'
+HERE:
+	lea eax, [ebp+dHERE]
+	push eax
+	NEXT
+
 link_EXIT:
-	dd 0
+	dw $-link_HERE
 	db 4, 'EXIT'
 EXIT:
-	dd code_EXIT
-code_EXIT:
 	mov esi, [edi]
 	add edi, 4
 	NEXT
 
 link_LIT:
-	dd link_EXIT
+	dw $-link_EXIT
 	db 3, 'LIT'
 LIT:
-	dd code_LIT
-code_LIT:
 	lodsd
 	push eax
 	NEXT
 
 link_DROP:
-	dd link_LIT
+	dw $-link_LIT
 	db 4, 'DROP'
-	dd code_DROP
-code_DROP:
+DROP:
 	pop eax
 	NEXT
 
 link_SWAP:
-	dd link_DROP
+	dw $-link_DROP
 	db 4, 'SWAP'
-	dd code_SWAP
-code_SWAP:
+SWAP:
 	pop eax
 	pop ebx
 	push eax
@@ -490,26 +532,23 @@ code_SWAP:
 	NEXT
 
 link_DUP:
-	dd link_SWAP
+	dw $-link_SWAP
 	db 3, 'DUP'
-	dd code_DUP
-code_DUP:
+DUP:
 	push dword[esp]
 	NEXT
 
 link_OVER:
-	dd link_DUP
+	dw $-link_DUP
 	db 4, 'OVER'
-	dd code_OVER
-code_OVER:
+OVER:
 	push dword[esp+4]
 	NEXT
 
 link_ROT:
-	dd link_OVER
+	dw $-link_OVER
 	db 3, 'ROT'
-	dd code_ROT
-code_ROT:
+ROT:
 	pop eax
 	pop ebx
 	pop ecx
@@ -519,10 +558,9 @@ code_ROT:
 	NEXT
 
 link_NROT:
-	dd link_ROT
+	dw $-link_ROT
 	db 4, '-ROT'
-	dd code_NROT
-code_NROT:
+NROT:
 	pop eax
 	pop ebx
 	pop ecx
@@ -532,60 +570,53 @@ code_NROT:
 	NEXT
 
 link_INC:
-	dd link_NROT
+	dw $-link_NROT
 	db 2, '1+'
-	dd code_INC
-code_INC:
+_INC:
 	inc dword[esp]
 	NEXT
 
 link_DEC:
-	dd link_INC
+	dw $-link_INC
 	db 2, '1-'
-	dd code_DEC
-code_DEC:
+_DEC:
 	dec dword[esp]
 	NEXT
 
 link_4INC:
-	dd link_DEC
+	dw $-link_DEC
 	db 2, '4+'
-	dd code_4INC
-code_4INC:
+_4INC:
 	add dword[esp], 4
 	NEXT
 
 link_4DEC:
-	dd link_4INC
+	dw $-link_4INC
 	db 2, '4-'
-	dd code_4DEC
-code_4DEC:
+_4DEC:
 	sub dword[esp], 4
 	NEXT
 
 link_ADD:
-	dd link_4DEC
+	dw $-link_4DEC
 	db 1, '+'
-	dd code_ADD
-code_ADD:
+_ADD:
 	pop eax
 	add dword[esp], eax
 	NEXT
 
 link_SUB:
-	dd link_ADD
+	dw $-link_ADD
 	db 1, '-'
-	dd code_SUB
-code_SUB:
+_SUB:
 	pop eax
 	sub dword[esp], eax
 	NEXT
 
 link_MUL:
-	dd link_SUB
+	dw $-link_SUB
 	db 1, '*'
-	dd code_MUL
-code_MUL:
+_MUL:
 	pop ecx
 	pop eax
 	imul ecx
@@ -593,10 +624,9 @@ code_MUL:
 	NEXT
 
 link_DIVMOD:
-	dd link_MUL
+	dw $-link_MUL
 	db 4, '/MOD'
-	dd code_DIVMOD
-code_DIVMOD:
+DIVMOD:
 	pop ecx
 	pop eax
 	cdq
@@ -606,10 +636,9 @@ code_DIVMOD:
 	NEXT
 
 link_EQ:
-	dd link_DIVMOD
+	dw $-link_DIVMOD
 	db 1, '='
-	dd code_EQ
-code_EQ:
+EQ:
 	pop ecx
 	pop ebx
 	xor eax, eax
@@ -620,10 +649,9 @@ code_EQ:
 	NEXT
 
 link_LT:
-	dd link_EQ
+	dw $-link_EQ
 	db 1, '<'
-	dd code_LT
-code_LT:
+LT:
 	pop ecx
 	pop ebx
 	xor eax, eax
@@ -634,10 +662,9 @@ code_LT:
 	NEXT
 
 link_GT:
-	dd link_LT
+	dw $-link_LT
 	db 1, '>'
-	dd code_GT
-code_GT:
+GT:
 	pop ecx
 	pop ebx
 	xor eax, eax
@@ -648,10 +675,9 @@ code_GT:
 	NEXT
 
 link_ZEQ:
-	dd link_GT
+	dw $-link_GT
 	db 2, '0='
-	dd code_ZEQ
-code_ZEQ:
+ZEQ:
 	pop ebx
 	xor eax, eax
 	test ebx, ebx
@@ -661,10 +687,9 @@ code_ZEQ:
 	NEXT
 
 link_ZLT:
-	dd link_ZEQ
+	dw $-link_ZEQ
 	db 2, '0<'
-	dd code_ZLT
-code_ZLT:
+ZLT:
 	pop ebx
 	xor eax, eax
 	test ebx, ebx
@@ -674,10 +699,9 @@ code_ZLT:
 	NEXT
 
 link_ZGT:
-	dd link_ZLT
+	dw $-link_ZLT
 	db 2, '0>'
-	dd code_ZGT
-code_ZGT:
+ZGT:
 	pop ebx
 	xor eax, eax
 	test ebx, ebx
@@ -687,85 +711,76 @@ code_ZGT:
 	NEXT
 
 link_AND:
-	dd link_ZGT
+	dw $-link_ZGT
 	db 3, 'AND'
-	dd code_AND
-code_AND:
+_AND:
 	pop eax
 	and dword[esp], eax
 	NEXT
 
 link_OR:
-	dd link_AND
+	dw $-link_AND
 	db 2, 'OR'
-	dd code_OR
-code_OR:
+_OR:
 	pop eax
 	or dword[esp], eax
 	NEXT
 
 link_XOR:
-	dd link_OR
+	dw $-link_OR
 	db 3, 'XOR'
-	dd code_XOR
-code_XOR:
+_XOR:
 	pop eax
 	xor dword[esp], eax
 	NEXT
 
 link_INVERT:
-	dd link_XOR
+	dw $-link_XOR
 	db 6, 'INVERT'
-	dd code_INVERT
-code_INVERT:
+INVERT:
 	not dword[esp]
 	NEXT
 
 link_STORE:
-	dd link_INVERT
+	dw $-link_INVERT
 	db 1, '!'
-	dd code_STORE
-code_STORE:
+STORE:
 	pop ebx
 	pop eax
 	mov [ebx], eax
 	NEXT
 
 link_FETCH:
-	dd link_STORE
+	dw $-link_STORE
 	db 1, '@'
-	dd code_FETCH
-code_FETCH:
+FETCH:
 	pop eax
 	mov eax, [eax]
 	push eax
 	NEXT
 
 link_ADDSTORE:
-	dd link_FETCH
+	dw $-link_FETCH
 	db 2, '+!'
-	dd code_ADDSTORE
-code_ADDSTORE:
+ADDSTORE:
 	pop ebx
 	pop eax
 	add [ebx], eax
 	NEXT
 
 link_SUBSTORE:
-	dd link_ADDSTORE
+	dw $-link_ADDSTORE
 	db 2, '-!'
-	dd code_SUBSTORE
-code_SUBSTORE:
+SUBSTORE:
 	pop ebx
 	pop eax
 	sub [ebx], eax
 	NEXT
 
 link_COMMA:
-	dd link_SUBSTORE
+	dw $-link_SUBSTORE
 	db 1, ','
-	dd code_COMMA
-code_COMMA:
+COMMA:
 	lea edx, [ebp+dHERE]
 	mov eax, [edx]
 	pop dword[eax]
@@ -773,182 +788,220 @@ code_COMMA:
 	NEXT
 
 link_CSTORE:
-	dd link_COMMA
+	dw $-link_COMMA
 	db 2, 'C!'
-	dd code_CSTORE
-code_CSTORE:
+CSTORE:
 	pop ebx
 	pop eax
 	mov [ebx], al
 	NEXT
 
 link_CFETCH:
-	dd link_CSTORE
+	dw $-link_CSTORE
 	db 2, 'C@'
-	dd code_CFETCH
-code_CFETCH:
+CFETCH:
 	pop eax
 	movzx eax, byte[eax]
 	push eax
 	NEXT
 
 link_CCOMMA:
-	dd link_CFETCH
+	dw $-link_CFETCH
 	db 2, 'C,'
-	dd code_CCOMMA
-code_CCOMMA:
+CCOMMA:
 	mov edx, [ebp+dHERE]
 	pop eax
 	mov [edx], al
 	inc dword[ebp+dHERE]
 	NEXT
 
-link_DOCOL:
-	dd link_CCOMMA
-	db 5, 'DOCOL'
-	dd code_DOCOL
-code_DOCOL:
-	push dword DOCOL
+link_CMOVE:
+	dw $-link_CMOVE
+	db 5, 'CMOVE'
+_CMOVE:
+	push esi
+	push edi
+	mov ecx, [esp+8]
+	mov edi, [esp+12]
+	mov esi, [esp+16]
+	rep movsb
+	pop edi
+	pop esi
+	add esp, 12
 	NEXT
 
 link_TOR:
-	dd link_DOCOL
+	dw $-link_CMOVE
 	db 2, '>R'
-	dd code_TOR
-code_TOR:
+TOR:
 	pop eax
 	sub edi, 4
 	mov [edi], eax
 	NEXT
 
 link_FROMR:
-	dd link_TOR
+	dw $-link_TOR
 	db 2, 'R>'
-	dd code_FROMR
-code_FROMR:
+FROMR:
 	push dword[edi]
 	add edi, 4
 	NEXT
 
 link_RPEEK:
-	dd link_FROMR
+	dw $-link_FROMR
 	db 2, 'R@'
-	dd code_RPEEK
-code_RPEEK:
+RPEEK:
 	push dword[edi]
 	NEXT
 
 link_RPSTORE:
-	dd link_RPEEK
+	dw $-link_RPEEK
 	db 3, 'RP!'
-	dd code_RPSTORE
-code_RPSTORE:
+RPSTORE:
 	pop edi
 	NEXT
 
 link_RPFETCH:
-	dd link_RPSTORE
+	dw $-link_RPSTORE
 	db 3, 'RP@'
-	dd code_RPFETCH
-code_RPFETCH:
+RPFETCH:
 	push edi
 	NEXT
 
 link_SPSTORE:
-	dd link_RPFETCH
+	dw $-link_RPFETCH
 	db 3, 'SP!'
-	dd code_SPSTORE
-code_SPSTORE:
+SPSTORE:
 	pop esp
 	NEXT
 
 link_SPFETCH:
-	dd link_SPSTORE
+	dw $-link_SPSTORE
 	db 3, 'SP@'
-	dd code_SPFETCH
-code_SPFETCH:
+SPFETCH:
 	mov eax, esp
 	push eax
 	NEXT
 
-link_KEY:
-	dd link_SPFETCH
-	db 3, 'KEY'
-	dd code_KEY
-code_KEY:
-	call _KEY
-	push eax
+link_BRANCH:
+	dw $-link_SPFETCH
+	db 6, 'BRANCH'
+BRANCH:
+	lodsd
+	xchg esi, eax
 	NEXT
 
+link_0BRANCH:
+	dw $-link_BRANCH
+	db 7, '0BRANCH'
+_0BRANCH:
+	lodsd
+	pop ebx
+	or ebx, ebx
+	jnz .dontbranch
+	xchg esi, eax
+.dontbranch:
+	NEXT
+
+link_FILENEXT:
+	dw $-link_0BRANCH
+	db 8, 'FILENEXT'
+FILENEXT:
+	pushad
+	call CallRM
+	dw ReadNextCluster_ErrorOnEOF
+	popad
+	NEXT
+
+; : KEY OFFSET @ DUP $1FF > IF
+;    FILENEXT DUP XOR ( DUP XOR is equivalent to DROP 0, but shorter )
+; THEN ( offset )
+; DUP 1+ OFFSET !
+; $8400 + C@ ( key ) ;
+link_KEY:
+	dw $-link_FILENEXT
+	db 3, 'KEY'
+KEY:
+	call DOCOL
+	dd OFFSET, FETCH, DUP, LIT, 0x1FF, GT, _0BRANCH, .then
+	dd FILENEXT, DUP, _XOR
+.then:
+	dd DUP, _INC, OFFSET, STORE, LIT, FileBuffer, _ADD, CFETCH, EXIT
+
+; : WORD BEGIN KEY BL > UNTIL
+; 1 HERE -! ( aka ungetc, convince yourself this works )
+; 0
+; BEGIN KEY DUP BL > WHILE
+;   ( length new-key )
+;   OVER $7DDE + !
+;   1+
+; REPEAT
+; $7DDE SWAP
+HALT:
+	cli
+	hlt
+link_WORD:
+	dw $-link_KEY
+	db 4, 'WORD'
+_WORD:
+	call DOCOL
+.begin1:
+	dd KEY, LIT, 32, GT, _0BRANCH, .begin1
+	dd LIT, 1, HERE, SUBSTORE
+	dd LIT, 0
+.begin2:
+	dd KEY, DUP, LIT, 32, GT, _0BRANCH, .end
+	dd OVER, LIT, 0x7DDE, _ADD, STORE
+	dd _INC
+	dd HALT
+.repeat:
+	dd BRANCH, .begin2
+.end:
+	dd LIT, 0x7DDE, SWAP, EXIT
+
 link_EMIT:
-	dd link_KEY
+	dw $-link_WORD
 	db 4, 'EMIT'
-	dd code_EMIT
-code_EMIT:
+EMIT:
 	pop eax
 	call CallRM
 	dw PrintChar
 	NEXT
 
 link_CREATE:
-	dd link_EMIT
+	dw $-link_EMIT
 	db 6, 'CREATE'
-	dd code_CREATE
-code_CREATE:
-	pop ecx
-	pop ebx
-
-; returns a character from the currently loaded file
-; Output:
-;  AL = the character
-; Clobbers EBX
-_KEY:
-	mov ebx, [ebp+dOFFSET]
-	cmp bx, 0x200
-	jb .gotsector
-	pushad
-	call CallRM
-	dw ReadNextCluster
-	jc .eof
-	popad
-	xor ebx, ebx
-.gotsector:
-	xor eax, eax
-	mov al, [FileBuffer+ebx]
-	inc ebx
-	mov [ebp+dOFFSET], ebx
-	ret
-.eof:
-	mov si, EOFErrorMsg
-	call CallRM
-	dw Error
-EOFErrorMsg:
-	db 'EOF in FORTH source', 0
+CREATE:
+	call DOCOL
+	dd HERE, FETCH, LATEST, FETCH, _SUB, COMMA
+	dd DUP, CCOMMA
+	dd HERE, FETCH, SWAP, _CMOVE
+	dd EXIT
 
 ; WORD is a FORTH word which reads the next full word of input.
 ; Output:
 ;  ECX = string length
 ;  EDX = string buffer, always equal to WORDBuffer
 ; Clobbers EAX and EBX
-..@SkipComment:
-	call _KEY
-	cmp al, 10
-	jne ..@SkipComment
-_WORD:
-	call _KEY
-	cmp al, '\'
-	je ..@SkipComment
-	cmp al, ' '
-	jbe _WORD
-	xor ecx, ecx
-	mov edx, WORDBuffer
-.main_loop:
-	mov [edx+ecx], al
-	inc ecx
-	call _KEY
-	cmp al, ' '
-	ja .main_loop
-	ret
+;..@SkipComment:
+;	call _KEY
+;	cmp al, 10
+;	jne ..@SkipComment
+;_WORD:
+;	call _KEY
+;	cmp al, '\'
+;	je ..@SkipComment
+;	cmp al, ' '
+;	jbe _WORD
+;	xor ecx, ecx
+;	mov edx, WORDBuffer
+;.main_loop:
+;	mov [edx+ecx], al
+;	inc ecx
+;	call _KEY
+;	cmp al, ' '
+;	ja .main_loop
+;	ret
 
 ; Parses a number in the base specified by BASE
 ; Input:
@@ -957,28 +1010,28 @@ _WORD:
 ; Output:
 ;  EAX = the number represented in the string buffer
 ;  ECX = the number of unparsed characters (may indicate a failure)
-_NUMBER:
-	xor eax, eax
-	xor ebx, ebx
-.loop:
-	mov bl, [edx]
-	inc edx
-	sub bl, '0'
-	jb .end
-	cmp bl, 9
-	jbe .gotdigit
-	sub bl, 'A' - '0'
-	jb .end
-	add bl, 10
-.gotdigit:
-	cmp bl, [ebp+dBASE]
-	jae .end
-	push edx
-	mul dword[ebp+dBASE]
-	add eax, ebx
-	pop edx
-	loop .loop
-.end:
+;_NUMBER:
+;	xor eax, eax
+;	xor ebx, ebx
+;.loop:
+;	mov bl, [edx]
+;	inc edx
+;	sub bl, '0'
+;	jb .end
+;	cmp bl, 9
+;	jbe .gotdigit
+;	sub bl, 'A' - '0'
+;	jb .end
+;	add bl, 10
+;.gotdigit:
+;	cmp bl, [ebp+dBASE]
+;	jae .end
+;	push edx
+;	mul dword[ebp+dBASE]
+;	add eax, ebx
+;	pop edx
+;	loop .loop
+;.end:
 ..@return:
 	ret
 
