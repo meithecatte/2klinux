@@ -72,7 +72,7 @@ ORG 0x7c00
 MBR:
 	jmp 0:start
 start:
-	cli                             ; Disable the interrupts when setting up the stack
+	cli ; Disable the interrupts when setting up the stack
 	xor cx, cx
 	mov bp, MBR
 	mov sp, bp
@@ -80,23 +80,23 @@ start:
 	mov ds, cx
 	mov es, cx
 	dec cx
-	mov fs, cx                                ; FS is set to 0xFFFF for probing the A20 Gate. Yuck.
-	mov byte[..@DiskReadPatch], dl; Self modifying code, because why not
+	mov fs, cx ; FS is set to 0xFFFF for probing the unloved A20 gate. Unloved for a reason.
+	mov byte[..@DiskNumberPatch], dl ; Self modifying code to save a few bytes.
 	sti
 
 	; The initialization code above is only used once. When we get here we can use that memory
 	; as data. All variables except the FORTH ones are free for use.
 
-	mov ax, 0x0003                  ; Better to set the video mode explicitly...
+	mov ax, 0x0003 ; Better to set the video mode explicitly...
 	int 0x10
 
-	mov eax, dword[P1LBA]           ; Read the first sector of the partition, to get the BPB
-	mov di, BPBBuffer
+	mov eax, dword[P1LBA] ; Read the first sector of the partition, to get the BPB
+	mov di, BPBBuffer ; the first instruction that isn't overlapping with variables
 	call DiskRead
 
 	movzx ebx, word[BPBReservedSectors]
 	add ebx, dword[P1LBA]
-	mov dword[..@ReadNextClusterOffsetPatch], ebx
+	mov dword[..@FirstFATSectorPatch], ebx
 
 	mov eax, dword[BPBSectorsPerFAT]
 	movzx ecx, byte[BPBFATCount]
@@ -104,16 +104,26 @@ start:
 	add eax, ebx
 	dec eax
 	dec eax
-	mov dword[..@ReadClusterOffsetPatch], eax
+	mov dword[..@ClusterZeroLBAPatch], eax
 
 	mov di, StageZeroFilename
 	push word LoadPartTwo
 	; fallthrough
+	; push X / jmp Y is equivalent to call Y / jmp X, but here jmp Y is a noop
+	; TL;DR: call FindFileRoot / jmp LoadPartTwo
+
+; FindFileRoot: like FindFile, but look in the root directory of a partition.
 FindFileRoot:
 	push di
 	mov eax, dword[BPBRootCluster]
 	call ReadCluster
 	pop di
+	; fallthrough
+
+; FindFile: treat the currently loaded file as a directory, find the file with a specified name and
+; load its first cluster
+; Input:
+;  DI = pointer to filename
 FindFile:
 	xor ecx, ecx
 	mov [bp+dOFFSET], ecx
@@ -165,7 +175,7 @@ ReadNextCluster:
 	mov eax, dword[bp+dCurrentCluster]
 	shr eax, 7
 	db 0x66, 0x05 ; add eax, imm32
-..@ReadNextClusterOffsetPatch:
+..@FirstFATSectorPatch:
 	dd 0
 
 	mov di, FATBuffer
@@ -181,14 +191,18 @@ ReadNextCluster:
 ReadCluster:
 	mov dword[bp+dCurrentCluster], eax
 	db 0x66, 0x05 ; add eax, imm32
-..@ReadClusterOffsetPatch:
+..@ClusterZeroLBAPatch:
 	dd 0
 
-	db 0xBF, 0x00 ; mov di, FileBuffer at first, but the address is patched at runtime when loading 7E00-83FF
+	db 0xBF, 0x00 ; mov di, imm16
 ..@ReadClusterDestinationPatch:
 	db FileBuffer>>8
 	; fallthrough
 
+; DiskRead: read a sector
+; Input:
+;   EAX = LBA
+;   DI  = output buffer
 DiskRead:
 	mov dword[bp+dDiskPacketLBA], eax
 	xor eax, eax
@@ -196,8 +210,8 @@ DiskRead:
 	mov dword[bp+dDiskPacket], 0x10010
 	mov word[bp+dDiskPacketDestOffset], di
 	mov word[bp+dDiskPacketDestSegment], ax
-	db 0xB2 ; mov dl, (patched at runtime)
-..@DiskReadPatch:
+	db 0xB2 ; mov dl, imm8
+..@DiskNumberPatch:
 	db 0xFF
 	mov ah, 0x42
 	mov si, bp
@@ -205,24 +219,24 @@ DiskRead:
 	jnc short ..@Return
 
 	mov al, ah
-	call PrintByte
+	call PrintHexByte
 	mov si, DiskErrorMsg
 	; fallthrough
 Error:
 	call PrintText
 	; fallthrough
 Halt:
+	cli
 	hlt
-	jmp short Halt
 
-PrintByte:
+PrintHexByte:
 	push ax
 	shr al, 4
-	call PrintNibble
+	call PrintHexDigit
 	pop ax
 	and al, 0x0f
 	; fallthrough
-PrintNibble:
+PrintHexDigit:
 	add al, '0'
 	cmp al, '9'
 	jbe PrintChar
@@ -250,6 +264,7 @@ ReadNextCluster_ErrorOnEOF:
 	mov si, EOFErrorMsg
 	jmp short Error
 
+; NULL terminators in filenames are only necessary for error handling
 StageZeroFilename:
 	db 'STAGENOTBIN', 0
 
@@ -937,9 +952,6 @@ KEY:
 ;   1+
 ; REPEAT
 ; $7DDE SWAP
-HALT:
-	cli
-	hlt
 link_WORD:
 	dw $-link_KEY
 	db 4, 'WORD'
@@ -953,7 +965,7 @@ _WORD:
 	dd KEY, DUP, LIT, 32, GT, _0BRANCH, .end
 	dd OVER, LIT, 0x7DDE, _ADD, STORE
 	dd _INC
-	dd HALT
+	dd Halt ; XXX: just for debugging
 .repeat:
 	dd BRANCH, .begin2
 .end:
