@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 # Exit on first error
 set -e
 
@@ -35,6 +35,7 @@ MBRFREE="$((446 - 0x$(grep 'times 446'  gen/stage0.lst | awk '{ print $2 }') ))"
 RESTFREE="$((2048 - 0x$(grep 'times 2048' gen/stage0.lst | awk '{ print $2 }') ))"
 accent "$MBRFREE + $RESTFREE = $(($MBRFREE + $RESTFREE)) bytes free"
 
+# If you find a way to create only one 64 megabyte file without using loop devices, hit me up
 info "Creating the partition image..."
 truncate -s 64M gen/fs.img
 
