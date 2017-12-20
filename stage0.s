@@ -403,7 +403,7 @@ Check_A20:
 
 BITS 32
 CallRM:
-	mov ebp, eax
+	xchg ebp, eax
 	mov eax, [esp]
 	mov eax, [eax]
 	jmp Selector_Code16:.code16
