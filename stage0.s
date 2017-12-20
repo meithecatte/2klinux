@@ -767,8 +767,24 @@ INVERT:
 	not dword[esp]
 	NEXT
 
-link_STORE:
+link_LSHIFT:
 	dw $-link_INVERT
+	db 6, 'LSHIFT'
+LSHIFT:
+	pop ecx
+	shl dword[esp], cl
+	NEXT
+
+link_RSHIFT:
+	dw $-link_LSHIFT
+	db 6, 'RSHIFT'
+RSHIFT:
+	pop ecx
+	shr dword[esp], cl
+	NEXT
+
+link_STORE:
+	dw $-link_RSHIFT
 	db 1, '!'
 STORE:
 	pop ebx
