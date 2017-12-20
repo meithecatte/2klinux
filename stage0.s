@@ -491,14 +491,13 @@ link_QUIT:
 QUIT:
 	call DOCOL
 .loop:
-	dd KEY, EMIT
 	dd BRANCH, .loop
 
 link_R0:
 	dw $-link_QUIT
 	db 2, 'R0'
 R0:
-	push dword 0x1500
+	push dword FORTHR0
 	NEXT
 
 link_OFFSET:
@@ -956,14 +955,15 @@ KEY:
 	dd DUP, _INC, OFFSET, STORE, LIT, FileBuffer, _ADD, CFETCH, EXIT
 
 ; : WORD BEGIN KEY BL > UNTIL
-; 1 HERE -! ( aka ungetc, convince yourself this works )
+; 1 OFFSET -! ( aka ungetc, convince yourself this works )
 ; 0
 ; BEGIN KEY DUP BL > WHILE
 ;   ( length new-key )
 ;   OVER $7DDE + !
 ;   1+
 ; REPEAT
-; $7DDE SWAP
+; ( length new-key )
+; DROP $7DDE SWAP
 link_WORD:
 	dw $-link_KEY
 	db 4, 'WORD'
@@ -971,17 +971,16 @@ _WORD:
 	call DOCOL
 .begin1:
 	dd KEY, LIT, 32, GT, _0BRANCH, .begin1
-	dd LIT, 1, HERE, SUBSTORE
+	dd LIT, 1, OFFSET, SUBSTORE
 	dd LIT, 0
 .begin2:
 	dd KEY, DUP, LIT, 32, GT, _0BRANCH, .end
 	dd OVER, LIT, 0x7DDE, _ADD, STORE
 	dd _INC
-	dd Halt ; XXX: just for debugging
 .repeat:
 	dd BRANCH, .begin2
 .end:
-	dd LIT, 0x7DDE, SWAP, EXIT
+	dd DROP, LIT, 0x7DDE, SWAP, EXIT
 
 link_EMIT:
 	dw $-link_WORD
