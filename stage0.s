@@ -416,13 +416,13 @@ BITS 16
 	mov cr0, eax
 	jmp 0:.rmode
 .rmode:
-	sti
 	xor ax, ax
 	mov ds, ax
 	mov es, ax
 	mov ss, ax
 	xchg eax, ebp
 	mov bp, MBR
+	sti
 	ret
 GoPM:
 	cli
