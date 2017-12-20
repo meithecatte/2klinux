@@ -351,7 +351,7 @@ A20ErrorMsg:
 	db 'A20 error', 0
 
 GDT:
-	dw 31
+	dw GDT_End-GDT-1
 	dd GDT
 	dw 0
 
@@ -375,6 +375,7 @@ GDT:
 	db 0x92
 	db 0xcf
 	db 0
+GDT_End:
 
 KBC_SendCommand:
 	in al, 0x64
