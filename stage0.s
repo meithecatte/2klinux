@@ -3,12 +3,12 @@
 
 ; The first bootstrap stage of this project is implemented as a bootloader. This bootsector
 ; implements FAT32, with the assumption that the sector and cluster sizes are both 512 bytes. Long
-; file names are not supported, but their presence for files we don't care about is not harmful.
-; All disk access is done using EDD, which means problems for very old PCs (like pre-Pentium old)
-; or booting from a floppy. Both of these problems don't concern me, like, at all. The FAT partition
+; file names are not supported, but their presence for files we don't care about is not harmful. All
+; disk access is done using EDD, which means problems for very old PCs (like pre-Pentium old) or
+; booting from a floppy. Both of these problems don't concern me, like, at all. The FAT partition
 ; with all the files should be the first physical partition of the drive.
 
-; EBP is constantly set to the value 0x7C00 to generate shorter instructions for accessing some
+; EBP is always set to the value 0x7C00 to generate shorter instructions for accessing some
 ; memory locations. Constants that start with a lowercase d represent the offset from 0x7C00, and
 ; therefore EBP, of some memory address.
 
@@ -32,6 +32,7 @@
 ;  0000 -  03FF -> Real mode interrupt vector table
 ;  0400 -  04FF -> The BIOS data area
 ;  0500 -  14FF -> FORTH return stack
+%define FORTHR0 0x1500
 ;  1500 -  7BFF -> the stack, used as the FORTH parameter stack
 ;  7C00 -  7DFF -> The MBR - the first part of this file
 ;  7E00 -  83FF -> 3 sectors loaded from the FAT filesystem - the second part of this file
@@ -49,7 +50,7 @@
 ; C0000 - FFFFF -> ROMs and memory mapped hardware
 
 BITS 16
-ORG 0x7c00
+ORG 0x7C00
 
 ; Addresses of the values in the BPB we need to correctly parse the FAT filesystem.
 %define BPBReservedSectors BPBBuffer+14
@@ -72,31 +73,35 @@ ORG 0x7c00
 MBR:
 	jmp 0:start
 start:
-	cli ; Disable the interrupts when setting up the stack
-	xor cx, cx
+	cli ; Disable the interrupts when setting up the stack - always a good idea
 	mov bp, MBR
 	mov sp, bp
+
+	xor cx, cx
 	mov ss, cx
 	mov ds, cx
 	mov es, cx
-	dec cx
+
+	dec cx ; Intentional integer underflow
 	mov fs, cx ; FS is set to 0xFFFF for probing the unloved A20 gate. Unloved for a reason.
+
 	mov byte[..@DiskNumberPatch], dl ; Self modifying code to save a few bytes.
 	sti
-
-	; The initialization code above is only used once. When we get here we can use that memory
-	; as data. All variables except the FORTH ones are free for use.
 
 	mov ax, 0x0003 ; Better to set the video mode explicitly...
 	int 0x10
 
 	mov eax, dword[P1LBA] ; Read the first sector of the partition, to get the BPB
-	mov di, BPBBuffer ; the first instruction that isn't overlapping with variables
+	mov di, BPBBuffer ; This is the first instruction that isn't overlapping with variables
 	call DiskRead
+
+	; First FAT sector = Partition Start LBA + Reserved Sector Count
 
 	movzx ebx, word[BPBReservedSectors]
 	add ebx, dword[P1LBA]
 	mov dword[..@FirstFATSectorPatch], ebx
+
+	; Cluster Zero LBA = First FAT sector + FAT count * sectors per FAT - 2
 
 	mov eax, dword[BPBSectorsPerFAT]
 	movzx ecx, byte[BPBFATCount]
