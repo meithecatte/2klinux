@@ -490,8 +490,8 @@ link_QUIT:
 	db 4, 'QUIT'
 QUIT:
 	call DOCOL
+	dd _WORD, NUMBER
 .loop:
-	dd _WORD, TELL
 	dd BRANCH, .loop
 
 link_R0:
@@ -1041,35 +1041,65 @@ CREATE:
 	pop esi
 	NEXT
 
+link_NUMBER:
+	dw $-link_CREATE
+	db 6, 'NUMBER'
+NUMBER:
+	pop ecx
+	pop eax
+	xchg esi, eax
+	push eax
+	call doNUMBER
+	pop esi
+	push eax
+	push ecx
+	NEXT
+
 ; Parses a number in the base specified by BASE
 ; Input:
 ;  ECX = string length
-;  EDX = string buffer
+;  ESI = string buffer
 ; Output:
 ;  EAX = the number represented in the string buffer
 ;  ECX = the number of unparsed characters (may indicate a failure)
-;_NUMBER:
-;	xor eax, eax
-;	xor ebx, ebx
-;.loop:
-;	mov bl, [edx]
-;	inc edx
-;	sub bl, '0'
-;	jb .end
-;	cmp bl, 9
-;	jbe .gotdigit
-;	sub bl, 'A' - '0'
-;	jb .end
-;	add bl, 10
-;.gotdigit:
-;	cmp bl, [ebp+dBASE]
-;	jae .end
-;	push edx
-;	mul dword[ebp+dBASE]
-;	add eax, ebx
-;	pop edx
-;	loop .loop
-;.end:
+doNUMBER:
+	mov word[.negate_patch], 0x9066 ; two byte nop - assume we don't need to negate
+	xor ebx, ebx
+	mul ebx ; EAX, EBX and EDX are now 0
+	mov dl, 10
+	mov bl, [esi]
+	cmp bl, '$'
+	jne .nothex
+	mov dl, 16
+	inc esi
+	dec ecx
+.nothex:
+	cmp bl, '-'
+	jne .loop
+	mov word[.negate_patch], 0xd8f7
+	inc esi
+	dec ecx
+.loop:
+	mov bl, [esi]
+	sub bl, '0'
+	jb .end
+	cmp bl, 9
+	jbe .gotdigit
+	sub bl, 'A' - '0'
+	jb .end
+	add bl, 10
+.gotdigit:
+	cmp bl, dl
+	jae .end
+	push edx
+	mul edx
+	add eax, ebx
+	pop edx
+	inc esi
+	loop .loop
+.end:
+.negate_patch:
+	dw 0xd8f7 ; either `neg eax' or `nop'
 ..@return:
 	ret
 

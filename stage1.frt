@@ -1,4 +1,4 @@
-: NIP SWAP DROP ;
+$DEADBEEF : NIP SWAP DROP ;
 : TUCK SWAP OVER ;
 
 : >R RP@ 4- DUP RP! ! ;
