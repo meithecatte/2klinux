@@ -1007,40 +1007,27 @@ EMIT:
 	dw PrintChar
 	NEXT
 
+; : CREATE
+; ( first, write the 16-bit link field, with the value of HERE - LATEST )
+; HERE @ LATEST @ -
+; ( write the low byte first )
+; DUP C, 8 RSHIFT C,
+; ( name-pointer name-length )
+; DUP C, ( write the length byte )
+; HERE @ SWAP ( name-pointer destination name-length )
+; DUP HERE +!
+; CMOVE ;
 link_CREATE:
 	dw $-link_EMIT
 	db 6, 'CREATE'
 CREATE:
 	call DOCOL
-	dd HERE, FETCH, LATEST, FETCH, _SUB, COMMA
+	dd HERE, FETCH, LATEST, FETCH, _SUB
+	dd DUP, CCOMMA, LIT, 8, RSHIFT, CCOMMA
 	dd DUP, CCOMMA
-	dd HERE, FETCH, SWAP, _CMOVE
-	dd EXIT
-
-; WORD is a FORTH word which reads the next full word of input.
-; Output:
-;  ECX = string length
-;  EDX = string buffer, always equal to WORDBuffer
-; Clobbers EAX and EBX
-;..@SkipComment:
-;	call _KEY
-;	cmp al, 10
-;	jne ..@SkipComment
-;_WORD:
-;	call _KEY
-;	cmp al, '\'
-;	je ..@SkipComment
-;	cmp al, ' '
-;	jbe _WORD
-;	xor ecx, ecx
-;	mov edx, WORDBuffer
-;.main_loop:
-;	mov [edx+ecx], al
-;	inc ecx
-;	call _KEY
-;	cmp al, ' '
-;	ja .main_loop
-;	ret
+	dd HERE, FETCH, SWAP,
+	dd DUP, HERE, ADDSTORE,
+	dd _CMOVE, EXIT
 
 ; Parses a number in the base specified by BASE
 ; Input:
