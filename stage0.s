@@ -945,30 +945,31 @@ _0BRANCH:
 .dontbranch:
 	NEXT
 
-link_FILENEXT:
+link_KEY:
 	dw $-link_0BRANCH
-	db 8, 'FILENEXT'
-FILENEXT:
+	db 3, 'KEY'
+KEY:
+	call _KEY
+	movzx eax, al
+	push eax
+	NEXT
+
+_KEY:
+	mov ebx, [ebp+dOFFSET]
+	cmp ebx, 0x200
+	jb .nonextcluster
+
 	pushad
 	call CallRM
 	dw ReadNextCluster_ErrorOnEOF
 	popad
-	NEXT
 
-; : KEY OFFSET @ DUP $1FF > IF
-;    FILENEXT DUP XOR ( DUP XOR is equivalent to DROP 0, but shorter )
-; THEN ( offset )
-; DUP 1+ OFFSET !
-; $8400 + C@ ( key ) ;
-link_KEY:
-	dw $-link_FILENEXT
-	db 3, 'KEY'
-KEY:
-	call DOCOL
-	dd OFFSET, FETCH, DUP, LIT, 0x1FF, GT, _0BRANCH, .then
-	dd FILENEXT, DUP, _XOR
-.then:
-	dd DUP, _INC, OFFSET, STORE, LIT, FileBuffer, _ADD, CFETCH, EXIT
+	xor ebx, ebx
+.nonextcluster:
+	mov al, [ebx]
+	inc ebx
+	mov [ebp+dOFFSET], ebx
+	ret
 
 ; : WORD BEGIN KEY BL > UNTIL
 ; 1 OFFSET -! ( aka ungetc, convince yourself this works )
