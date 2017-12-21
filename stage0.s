@@ -491,6 +491,7 @@ link_QUIT:
 QUIT:
 	call DOCOL
 .loop:
+	dd _WORD, TELL
 	dd BRANCH, .loop
 
 link_R0:
@@ -987,6 +988,7 @@ doWORD:
 	xor ecx, ecx
 .loop:
 	mov [WORDBuffer+ecx], al
+	inc ecx
 	call doKEY
 	cmp al, ' '
 	ja .loop
@@ -1001,8 +1003,24 @@ EMIT:
 	dw PrintChar
 	NEXT
 
-link_CREATE:
+link_TELL:
 	dw $-link_EMIT
+	db 4, 'TELL'
+TELL:
+	pop ecx
+	pop eax
+	push esi
+	xchg eax, esi
+.loop:
+	lodsb
+	call CallRM
+	dw PrintChar
+	loop .loop
+	pop esi
+	NEXT
+
+link_CREATE:
+	dw $-link_TELL
 	db 6, 'CREATE'
 CREATE:
 	pop ecx
