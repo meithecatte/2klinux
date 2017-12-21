@@ -949,12 +949,12 @@ link_KEY:
 	dw $-link_0BRANCH
 	db 3, 'KEY'
 KEY:
-	call _KEY
+	call doKEY
 	movzx eax, al
 	push eax
 	NEXT
 
-_KEY:
+doKEY:
 	mov ebx, [ebp+dOFFSET]
 	cmp bx, 0x200
 	jb .nonextcluster
@@ -974,19 +974,20 @@ _KEY:
 link_WORD:
 	dw $-link_KEY
 	db 4, 'WORD'
-	call _WORD
+_WORD:
+	call doWORD
 	push dword WORDBuffer
 	push ecx
 	NEXT
 
-_WORD:
-	call _KEY
+doWORD:
+	call doKEY
 	cmp al, ' '
 	jbe _WORD
 	xor ecx, ecx
 .loop:
 	mov [WORDBuffer+ecx], al
-	call _KEY
+	call doKEY
 	cmp al, ' '
 	ja .loop
 	ret
@@ -1000,27 +1001,27 @@ EMIT:
 	dw PrintChar
 	NEXT
 
-; : CREATE
-; ( first, write the 16-bit link field, with the value of HERE - LATEST )
-; HERE @ LATEST @ -
-; ( write the low byte first )
-; DUP C, 8 RSHIFT C,
-; ( name-pointer name-length )
-; DUP C, ( write the length byte )
-; HERE @ SWAP ( name-pointer destination name-length )
-; DUP HERE +!
-; CMOVE ;
 link_CREATE:
 	dw $-link_EMIT
 	db 6, 'CREATE'
 CREATE:
-	call DOCOL
-	dd HERE, FETCH, LATEST, FETCH, _SUB
-	dd DUP, CCOMMA, LIT, 8, RSHIFT, CCOMMA
-	dd DUP, CCOMMA
-	dd HERE, FETCH, SWAP,
-	dd DUP, HERE, ADDSTORE,
-	dd _CMOVE, EXIT
+	pop ecx
+	pop eax
+	push esi
+	push edi
+	xchg esi, eax
+	mov edi, [ebp+dHERE]
+	mov eax, edi
+	sub eax, [ebp+dLATEST]
+	mov [ebp+dLATEST], edi
+	stosw
+	mov al, cl
+	stosb
+	rep movsb
+	mov [ebp+dHERE], edi
+	pop edi
+	pop esi
+	NEXT
 
 ; Parses a number in the base specified by BASE
 ; Input:
