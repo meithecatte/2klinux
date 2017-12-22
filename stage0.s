@@ -1124,17 +1124,8 @@ doCREATE:
 	pop esi
 	ret
 
-link_HIDDEN:
-	dw $-link_CREATE
-	db 6, 'HIDDEN'
-HIDDEN:
-	pop eax
-	add eax, 2
-	xor byte[eax], F_IMMED
-	NEXT
-
 link_FIND:
-	dw $-link_HIDDEN
+	dw $-link_CREATE
 	db 4, 'FIND'
 FIND:
 	pop ecx
