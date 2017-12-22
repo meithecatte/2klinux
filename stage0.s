@@ -523,8 +523,16 @@ HERE:
 	push eax
 	NEXT
 
-link_EXIT:
+link_STATE:
 	dw $-link_HERE
+	db 5, 'STATE'
+STATE:
+	lea eax, [ebp+dSTATE]
+	push eax
+	NEXT
+
+link_EXIT:
+	dw $-link_STATE
 	db 4, 'EXIT'
 EXIT:
 	mov esi, [edi]
