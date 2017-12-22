@@ -1158,8 +1158,16 @@ link_DOCOLCOMMA:
 	dw $-link_CREATE
 	db 6, 'DOCOL,'
 DOCOLCOMMA:
-	call DOCOL
-	dd LIT, DOCOL+5, HERE, FETCH, _SUB, LIT, 0xE8, CCOMMA, COMMA, EXIT
+	push edi
+	mov edi, [ebp+dHERE]
+	mov al, 0xE8
+	stosb
+	mov eax, DOCOL+4
+	sub eax, edi
+	stosd
+	mov [ebp+dHERE], edi
+	pop edi
+	NEXT
 
 link_HIDDEN:
 	dw $-link_DOCOLCOMMA
