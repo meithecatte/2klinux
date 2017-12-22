@@ -1070,7 +1070,6 @@ doNUMBER:
 .end:
 .negate_patch:
 	dw 0xd8f7 ; either `neg eax' or `nop'
-..@return:
 	ret
 
 link_EMIT:
