@@ -1081,10 +1081,10 @@ EMIT:
 	dw PrintChar
 	NEXT
 
-link_TELL:
+link_TYPE:
 	dw $-link_EMIT
-	db 4, 'TELL'
-TELL:
+	db 4, 'TYPE'
+TYPE:
 	pop ecx
 	pop eax
 	push esi
@@ -1098,11 +1098,15 @@ TELL:
 	NEXT
 
 link_CREATE:
-	dw $-link_TELL
+	dw $-link_TYPE
 	db 6, 'CREATE'
 CREATE:
 	pop ecx
 	pop eax
+	call doCREATE
+	NEXT
+
+doCREATE:
 	push esi
 	push edi
 	xchg esi, eax
@@ -1113,23 +1117,12 @@ CREATE:
 	stosw
 	mov al, cl
 	stosb
+	and cl, F_LENMASK
 	rep movsb
 	mov [ebp+dHERE], edi
 	pop edi
 	pop esi
-	NEXT
-
-DOCOLCOMMA:
-	push edi
-	mov edi, [ebp+dHERE]
-	mov al, 0xE8
-	stosb
-	mov eax, DOCOL+4
-	sub eax, edi
-	stosd
-	mov [ebp+dHERE], edi
-	pop edi
-	NEXT
+	ret
 
 link_HIDDEN:
 	dw $-link_CREATE
@@ -1184,32 +1177,43 @@ doFIND:
 	pop esi
 	ret
 
-link_LBRAC:
-	dw $-link_FIND
-	db F_IMMED|1, '['
-LBRAC:
-	mov byte[ebp+dSTATE], 0
-	NEXT
-
-link_RBRAC:
-	dw $-link_LBRAC
-	db 1, ']'
-RBRAC:
-	mov byte[ebp+dSTATE], 1
-	NEXT
-
 link_COLON:
-	dw $-link_RBRAC
+	dw $-link_FIND
 	db 1, ':'
 COLON:
-	call DOCOL
-	dd _WORD, CREATE, DOCOLCOMMA, LATEST, FETCH, HIDDEN, RBRAC, EXIT
+	call doWORD
+	or cl, F_HIDDEN
+	call doCREATE
+
+	push edi
+	mov edi, [ebp+dHERE]
+	mov al, 0xE8
+	stosb
+	mov eax, DOCOL+4
+	sub eax, edi
+	stosd
+	mov [ebp+dHERE], edi
+	pop edi
+
+	xor eax, eax
+	dec eax
+	jmp short ChangeState
 
 link_SEMICOLON:
 	dw $-link_COLON
 	db F_IMMED, ';'
 SEMICOLON:
-	call DOCOL
-	dd LIT, EXIT, COMMA, LATEST, FETCH, HIDDEN, LBRAC, EXIT
+	mov eax, [ebp+dHERE]
+	mov dword[eax], EXIT
+	add eax, 4
+	mov [ebp+dHERE], eax
+	mov eax, [ebp+dLATEST]
+	add eax, 2
+	and byte[eax], ~F_HIDDEN
+
+	xor eax, eax
+ChangeState:
+	mov [ebp+dSTATE], eax
+	NEXT
 
 	times 2048 - ($ - $$) db 0x69
