@@ -1200,7 +1200,7 @@ COLON:
 
 link_SEMICOLON:
 	dw $-link_COLON
-	db F_IMMED, ';'
+	db F_IMMED|1, ';'
 SEMICOLON:
 	mov eax, [ebp+dHERE]
 	mov dword[eax], EXIT
