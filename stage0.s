@@ -1119,9 +1119,6 @@ CREATE:
 	pop esi
 	NEXT
 
-link_DOCOLCOMMA:
-	dw $-link_CREATE
-	db 6, 'DOCOL,'
 DOCOLCOMMA:
 	push edi
 	mov edi, [ebp+dHERE]
@@ -1135,7 +1132,7 @@ DOCOLCOMMA:
 	NEXT
 
 link_HIDDEN:
-	dw $-link_DOCOLCOMMA
+	dw $-link_CREATE
 	db 6, 'HIDDEN'
 HIDDEN:
 	pop eax
