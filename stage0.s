@@ -403,7 +403,7 @@ Check_A20:
 	loop .loop
 	ret
 .ok:
-
+	pop ax ; discard the return address
 	push dword PM_Entry-2
 	jmp short GoPM
 
@@ -451,8 +451,7 @@ BITS 32
 	ret
 
 ; Here is where the actual Forth implementation starts. In contrast to jonesforth, we are using
-; direct threaded code. Also, the link fields in the dictionary are relative. XXX: CREATE and FIND
-; still need to be changed to reflect this, but I'm currently debugging something unrelated.
+; direct threaded code. Also, the link fields in the dictionary are relative.
 %macro NEXT 0
 	lodsd
 	jmp eax
@@ -471,11 +470,11 @@ PM_Entry:
 	dw FindFileRoot
 
 	xor eax, eax
-	mov [ebp+dLATEST], eax
+	mov dword[ebp+dLATEST], link_FIND
 	mov [ebp+dSTATE], eax
 	mov ah, FORTHMemoryStart >> 8
 	mov [ebp+dHERE], eax
-	mov ah, 0x15
+	mov ah, FORTHR0 >> 8
 	xchg edi, eax
 
 	jmp short QUIT
@@ -490,7 +489,6 @@ link_QUIT:
 	db 4, 'QUIT'
 QUIT:
 	call DOCOL
-	dd _WORD, NUMBER
 .loop:
 	dd BRANCH, .loop
 
@@ -596,8 +594,54 @@ NROT:
 	push ebx
 	NEXT
 
-link_INC:
+link_QDUP:
 	dw $-link_NROT
+	db 4, '?DUP'
+QDUP:
+	pop eax
+	push eax
+	or eax, eax
+	jz .skip
+	push eax
+.skip:
+	NEXT
+
+link_2DROP:
+	dw $-link_QDUP
+	db 5, '2DROP'
+_2DROP:
+	pop eax
+	pop eax
+	NEXT
+
+link_2DUP:
+	dw $-link_2DROP
+	db 4, '2DUP'
+_2DUP:
+	pop eax
+	pop ebx
+	push ebx
+	push eax
+	push ebx
+	push eax
+	NEXT
+
+link_2SWAP:
+	dw $-link_2DUP
+	db 5, '2SWAP'
+_2SWAP:
+	pop eax
+	pop ebx
+	pop ecx
+	pop edx
+	push ebx
+	push eax
+	push edx
+	push ecx
+	NEXT
+
+link_INC:
+	dw $-link_2SWAP
 	db 2, '1+'
 _INC:
 	inc dword[esp]
@@ -859,7 +903,7 @@ CCOMMA:
 	NEXT
 
 link_CMOVE:
-	dw $-link_CMOVE
+	dw $-link_CCOMMA
 	db 5, 'CMOVE'
 _CMOVE:
 	push esi
@@ -897,8 +941,15 @@ RPEEK:
 	push dword[edi]
 	NEXT
 
-link_RPSTORE:
+link_RDROP:
 	dw $-link_RPEEK
+	db 5, 'RDROP'
+RDROP:
+	add edi, 4
+	NEXT
+
+link_RPSTORE:
+	dw $-link_RDROP
 	db 3, 'RP!'
 RPSTORE:
 	pop edi
@@ -994,55 +1045,8 @@ doWORD:
 	ja .loop
 	ret
 
-link_EMIT:
-	dw $-link_WORD
-	db 4, 'EMIT'
-EMIT:
-	pop eax
-	call CallRM
-	dw PrintChar
-	NEXT
-
-link_TELL:
-	dw $-link_EMIT
-	db 4, 'TELL'
-TELL:
-	pop ecx
-	pop eax
-	push esi
-	xchg eax, esi
-.loop:
-	lodsb
-	call CallRM
-	dw PrintChar
-	loop .loop
-	pop esi
-	NEXT
-
-link_CREATE:
-	dw $-link_TELL
-	db 6, 'CREATE'
-CREATE:
-	pop ecx
-	pop eax
-	push esi
-	push edi
-	xchg esi, eax
-	mov edi, [ebp+dHERE]
-	mov eax, edi
-	sub eax, [ebp+dLATEST]
-	mov [ebp+dLATEST], edi
-	stosw
-	mov al, cl
-	stosb
-	rep movsb
-	mov [ebp+dHERE], edi
-	pop edi
-	pop esi
-	NEXT
-
 link_NUMBER:
-	dw $-link_CREATE
+	dw $-link_WORD
 	db 6, 'NUMBER'
 NUMBER:
 	pop ecx
@@ -1103,33 +1107,95 @@ doNUMBER:
 ..@return:
 	ret
 
+link_EMIT:
+	dw $-link_NUMBER
+	db 4, 'EMIT'
+EMIT:
+	pop eax
+	call CallRM
+	dw PrintChar
+	NEXT
+
+link_TELL:
+	dw $-link_EMIT
+	db 4, 'TELL'
+TELL:
+	pop ecx
+	pop eax
+	push esi
+	xchg eax, esi
+.loop:
+	lodsb
+	call CallRM
+	dw PrintChar
+	loop .loop
+	pop esi
+	NEXT
+
+link_CREATE:
+	dw $-link_TELL
+	db 6, 'CREATE'
+CREATE:
+	pop ecx
+	pop eax
+	push esi
+	push edi
+	xchg esi, eax
+	mov edi, [ebp+dHERE]
+	mov eax, edi
+	sub eax, [ebp+dLATEST]
+	mov [ebp+dLATEST], edi
+	stosw
+	mov al, cl
+	stosb
+	rep movsb
+	mov [ebp+dHERE], edi
+	pop edi
+	pop esi
+	NEXT
+
+link_FIND:
+	dw $-link_CREATE
+	db 4, 'FIND'
+FIND:
+	pop ecx
+	pop ebx
+	call doFIND
+	push edx
+	NEXT
+
 ; Input:
 ;  ECX = name length
 ;  EBX = name pointer
 ; Output:
 ;  EDX = word pointer, or 0 if not found
-_FIND:
+doFIND:
 	push esi
 	push edi
 
 	mov edx, [ebp+dLATEST]
 .loop:
 	or edx, edx
-	jz ..@return
+	jz .end
 
-	mov al, [edx+4]
+	mov al, [edx+2]
 	and al, F_HIDDEN|F_LENMASK
 	cmp al, cl
 	jnz .next
 
-	lea esi, [edx+5]
+	lea esi, [edx+3]
 	mov edi, ebx
 	push ecx
 	repe cmpsb
 	pop ecx
-	je ..@return
+	je .end
 .next:
-	mov edx, [edx]
+	movzx eax, word[edx]
+	sub edx, eax
 	jmp .loop
+.end:
+	pop edi
+	pop esi
+	ret
 
 	times 2048 - ($ - $$) db 0x69
