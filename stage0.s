@@ -1154,8 +1154,24 @@ CREATE:
 	pop esi
 	NEXT
 
-link_FIND:
+link_DOCOLCOMMA:
 	dw $-link_CREATE
+	db 6, 'DOCOL,'
+DOCOLCOMMA:
+	call DOCOL
+	dd LIT, DOCOL+5, HERE, FETCH, _SUB, LIT, 0xE8, CCOMMA, COMMA, EXIT
+
+link_HIDDEN:
+	dw $-link_DOCOLCOMMA
+	db 6, 'HIDDEN'
+HIDDEN:
+	pop eax
+	add eax, 2
+	xor byte[eax], F_IMMED
+	NEXT
+
+link_FIND:
+	dw $-link_HIDDEN
 	db 4, 'FIND'
 FIND:
 	pop ecx
