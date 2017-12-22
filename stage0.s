@@ -279,6 +279,9 @@ ReadNextCluster_ErrorOnEOF:
 StageZeroFilename:
 	db 'STAGENOTBIN', 0
 
+StageOneFilename:
+	db 'STAGEONEFRT', 0
+
 DiskErrorMsg:
 	db ' disk error', 0
 
@@ -287,6 +290,9 @@ FileNotFoundMsg:
 
 EOFErrorMsg:
 	db 'EOF error', 0
+
+A20ErrorMsg:
+	db 'A20 error', 0
 
 LoadPartTwo:
 	mov byte[..@ReadClusterDestinationPatch], 0x7E
@@ -313,7 +319,6 @@ WORDBuffer:
 	dw 0xaa55
 
 A20:
-	cli
 	call Check_A20
 	mov ax, 0x2401
 	int 0x15
@@ -351,9 +356,6 @@ A20:
 	call Check_A20
 	mov si, A20ErrorMsg
 	jmp Error
-
-A20ErrorMsg:
-	db 'A20 error', 0
 
 GDT:
 	dw GDT_End-GDT-1
@@ -393,6 +395,7 @@ KBC_SendCommand:
 
 Check_A20:
 	; we have set DS to 0 and FS to 0xFFFF and the very beginning
+	cli
 	mov si, 0x7dfe
 .loop:
 	mov al, byte[si]
@@ -460,9 +463,6 @@ BITS 32
 %define F_IMMED   0x80
 %define F_HIDDEN  0x20
 %define F_LENMASK 0x1f
-
-StageOneFilename:
-	db 'STAGEONEFRT', 0
 
 PM_Entry:
 	mov di, StageOneFilename
@@ -606,42 +606,8 @@ QDUP:
 .skip:
 	NEXT
 
-link_2DROP:
-	dw $-link_QDUP
-	db 5, '2DROP'
-_2DROP:
-	pop eax
-	pop eax
-	NEXT
-
-link_2DUP:
-	dw $-link_2DROP
-	db 4, '2DUP'
-_2DUP:
-	pop eax
-	pop ebx
-	push ebx
-	push eax
-	push ebx
-	push eax
-	NEXT
-
-link_2SWAP:
-	dw $-link_2DUP
-	db 5, '2SWAP'
-_2SWAP:
-	pop eax
-	pop ebx
-	pop ecx
-	pop edx
-	push ebx
-	push eax
-	push edx
-	push ecx
-	NEXT
-
 link_INC:
-	dw $-link_2SWAP
+	dw $-link_QDUP
 	db 2, '1+'
 _INC:
 	inc dword[esp]
@@ -1221,5 +1187,33 @@ doFIND:
 	pop edi
 	pop esi
 	ret
+
+link_LBRAC:
+	dw $-link_FIND
+	db F_IMMED|1, '['
+LBRAC:
+	mov byte[ebp+dSTATE], 0
+	NEXT
+
+link_RBRAC:
+	dw $-link_LBRAC
+	db 1, ']'
+RBRAC:
+	mov byte[ebp+dSTATE], 1
+	NEXT
+
+link_COLON:
+	dw $-link_RBRAC
+	db 1, ':'
+COLON:
+	call DOCOL
+	dd _WORD, CREATE, DOCOLCOMMA, LATEST, FETCH, HIDDEN, RBRAC, EXIT
+
+link_SEMICOLON:
+	dw $-link_COLON
+	db F_IMMED, ';'
+SEMICOLON:
+	call DOCOL
+	dd LIT, EXIT, COMMA, LATEST, FETCH, HIDDEN, LBRAC, EXIT
 
 	times 2048 - ($ - $$) db 0x69
