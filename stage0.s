@@ -137,7 +137,7 @@ FindFile:
 .loop:
 	mov al, byte[si]
 	or al, al
-	jz short .notfound
+	jz short NotFoundError
 	; normally, you would check if the first byte is 0xE5 (if so, you should skip the entry),
 	; but it won't match the filename anyway
 	test byte[si+DirAttributes], 0x0e
@@ -170,10 +170,10 @@ FindFile:
 	call ReadNextCluster
 	pop di
 	jnc short FindFile
-.notfound:
+NotFoundError:
 	mov si, di
 	call PrintText
-	mov si, FileNotFoundMsg
+	mov si, NotFoundMsg
 	jmp short Error
 
 ReadNextCluster:
@@ -283,29 +283,60 @@ StageOneFilename:
 	db 'STAGEONEFRT', 0
 
 DiskErrorMsg:
-	db ' disk error', 0
+	db ' DISKERR', 0
 
-FileNotFoundMsg:
-	db ' not found', 0
+NotFoundMsg:
+	db ' NOTFOUND', 0
 
 EOFErrorMsg:
-	db 'EOF error', 0
+	db 'ERREOF', 0
 
 A20ErrorMsg:
-	db 'A20 error', 0
+	db 'ERRA20', 0
+
+GDT:
+	dw GDT_End-GDT-1
+	dd GDT
+	dw 0
+
+	dw 0xffff
+	dw 0
+	db 0
+	db 0x9a
+	db 0xcf
+	db 0
+
+	dw 0xffff
+	dw 0
+	db 0
+	db 0x9a
+	db 0x8f
+	db 0
+
+	dw 0xffff
+	dw 0
+	db 0
+	db 0x92
+	db 0xcf
+	db 0
+GDT_End:
 
 LoadPartTwo:
 	mov byte[..@ReadClusterDestinationPatch], 0x7E
 .loop:
 	call ReadNextCluster
-	jc A20
+	jc short A20
 	add byte[..@ReadClusterDestinationPatch], 2
 	jmp short .loop
 
-	times 446 - ($ - $$) db 0
+MBR_FREESPACE EQU 446 - ($ - $$)
+
+	times MBR_FREESPACE db 0
 
 PartitionTable:
-	times 8 db 0
+	dw MBR_FREESPACE ; these bytes will be overwritten by the partition table
+	dw REST_FREESPACE ; extracted by the build script to show the amount of free space available
+	times 4 db 0
 
 P1LBA:      dd 0
 P1Length:   dd 0
@@ -356,33 +387,6 @@ A20:
 	call Check_A20
 	mov si, A20ErrorMsg
 	jmp Error
-
-GDT:
-	dw GDT_End-GDT-1
-	dd GDT
-	dw 0
-
-	dw 0xffff
-	dw 0
-	db 0
-	db 0x9a
-	db 0xcf
-	db 0
-
-	dw 0xffff
-	dw 0
-	db 0
-	db 0x9a
-	db 0x8f
-	db 0
-
-	dw 0xffff
-	dw 0
-	db 0
-	db 0x92
-	db 0xcf
-	db 0
-GDT_End:
 
 KBC_SendCommand:
 	in al, 0x64
@@ -470,7 +474,7 @@ PM_Entry:
 	dw FindFileRoot
 
 	xor eax, eax
-	mov dword[ebp+dLATEST], link_FIND
+	mov dword[ebp+dLATEST], link_INTERPRET
 	mov [ebp+dSTATE], eax
 	mov ah, FORTHMemoryStart >> 8
 	mov [ebp+dHERE], eax
@@ -490,6 +494,8 @@ link_QUIT:
 QUIT:
 	call DOCOL
 .loop:
+	dd R0, RPSTORE
+	dd INTERPRET
 	dd BRANCH, .loop
 
 link_R0:
@@ -602,20 +608,8 @@ NROT:
 	push ebx
 	NEXT
 
-link_QDUP:
-	dw $-link_NROT
-	db 4, '?DUP'
-QDUP:
-	pop eax
-	push eax
-	or eax, eax
-	jz .skip
-	push eax
-.skip:
-	NEXT
-
 link_INC:
-	dw $-link_QDUP
+	dw $-link_NROT
 	db 2, '1+'
 _INC:
 	inc dword[esp]
@@ -842,9 +836,14 @@ link_COMMA:
 	dw $-link_SUBSTORE
 	db 1, ','
 COMMA:
+	pop eax
+	call doCOMMA
+	NEXT
+
+doCOMMA:
 	lea edx, [ebp+dHERE]
-	mov eax, [edx]
-	pop dword[eax]
+	mov ebx, [edx]
+	mov [ebx], eax
 	add dword[edx], 4
 	NEXT
 
@@ -1017,6 +1016,7 @@ doWORD:
 	call doKEY
 	cmp al, ' '
 	ja .loop
+	mov byte[WORDBuffer+ecx], 0
 	ret
 
 link_NUMBER:
@@ -1025,10 +1025,7 @@ link_NUMBER:
 NUMBER:
 	pop ecx
 	pop eax
-	xchg esi, eax
-	push eax
 	call doNUMBER
-	pop esi
 	push eax
 	push ecx
 	NEXT
@@ -1036,11 +1033,13 @@ NUMBER:
 ; Parses a number in the base specified by BASE
 ; Input:
 ;  ECX = string length
-;  ESI = string buffer
+;  EAX = string buffer
 ; Output:
 ;  EAX = the number represented in the string buffer
 ;  ECX = the number of unparsed characters (may indicate a failure)
 doNUMBER:
+	xchg eax, esi
+	push eax
 	mov word[.negate_patch], 0x9066 ; two byte nop - assume we don't need to negate
 	xor ebx, ebx
 	mul ebx ; EAX, EBX and EDX are now 0
@@ -1078,6 +1077,7 @@ doNUMBER:
 .end:
 .negate_patch:
 	dw 0xd8f7 ; either `neg eax' or `nop'
+	pop esi
 	ret
 
 link_EMIT:
@@ -1087,32 +1087,17 @@ EMIT:
 	pop eax
 	call CallRM
 	dw PrintChar
-	NEXT
-
-link_TYPE:
-	dw $-link_EMIT
-	db 4, 'TYPE'
-TYPE:
-	pop ecx
-	pop eax
-	push esi
-	xchg eax, esi
-.loop:
-	lodsb
-	call CallRM
-	dw PrintChar
-	loop .loop
-	pop esi
+..@NEXT:
 	NEXT
 
 link_CREATE:
-	dw $-link_TYPE
+	dw $-link_EMIT
 	db 6, 'CREATE'
 CREATE:
 	pop ecx
 	pop eax
-	call doCREATE
-	NEXT
+	push word ..@NEXT
+	; fallthrough
 
 doCREATE:
 	push esi
@@ -1153,9 +1138,6 @@ doFIND:
 
 	mov edx, [ebp+dLATEST]
 .loop:
-	or edx, edx
-	jz .end
-
 	mov al, [edx+2]
 	and al, F_HIDDEN|F_LENMASK
 	cmp al, cl
@@ -1169,6 +1151,8 @@ doFIND:
 	je .end
 .next:
 	movzx eax, word[edx]
+	or eax, eax
+	jz short .end
 	sub edx, eax
 	jmp .loop
 .end:
@@ -1188,11 +1172,11 @@ COLON:
 	mov edi, [ebp+dHERE]
 	mov al, 0xE8
 	stosb
-	mov eax, DOCOL+4
-	sub eax, edi
-	stosd
 	mov [ebp+dHERE], edi
 	pop edi
+	mov eax, DOCOL+4
+	sub eax, edi
+	call doCOMMA
 
 	xor eax, eax
 	dec eax
@@ -1202,10 +1186,9 @@ link_SEMICOLON:
 	dw $-link_COLON
 	db F_IMMED|1, ';'
 SEMICOLON:
-	mov eax, [ebp+dHERE]
-	mov dword[eax], EXIT
-	add eax, 4
-	mov [ebp+dHERE], eax
+	mov eax, EXIT
+	call doCOMMA
+
 	mov eax, [ebp+dLATEST]
 	add eax, 2
 	and byte[eax], ~F_HIDDEN
@@ -1215,4 +1198,59 @@ ChangeState:
 	mov [ebp+dSTATE], eax
 	NEXT
 
-	times 2048 - ($ - $$) db 0x69
+link_INTERPRET:
+	dw $-link_SEMICOLON
+	db 9, 'INTERPRET'
+INTERPRET:
+	call doWORD
+	call doFIND
+	or eax, eax
+	jz short .handle_number ; if the word isn't found, assume it's a number
+
+	mov cl, [eax+2] ; get the flags field
+	add eax, 2
+	movzx ebx, byte[eax]
+	and bl, F_LENMASK
+	add eax, ebx
+
+	mov ebx, [ebp+dSTATE]
+	or ebx, ebx
+	jz short .interpret ; if we're in interpreting mode, execute the word
+
+	and cl, F_IMMED
+	jz short .comma_next
+
+.interpret:
+	jmp [eax]
+
+.handle_number:
+	mov eax, WORDBuffer
+	call doNUMBER
+
+	or ecx, ecx
+	jnz .error
+
+	mov ebx, [ebp+dSTATE]
+	or ebx, ebx
+	jz .interpret_number
+
+	push eax
+	mov eax, LIT
+	call doCOMMA
+	pop eax
+
+.comma_next:
+	call doCOMMA
+	NEXT
+
+.interpret_number:
+	push eax
+	NEXT
+
+.error:
+	mov di, WORDBuffer
+	call CallRM
+	dw NotFoundError
+
+REST_FREESPACE EQU 2048 - ($ - $$)
+	times REST_FREESPACE db 0x00
