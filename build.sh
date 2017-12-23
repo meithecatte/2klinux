@@ -31,8 +31,8 @@ infon "Assembling stage0... "
 mkdir -p gen
 rm -rf gen/*
 $ASM stage0.s -o gen/stage0.bin -l gen/stage0.lst
-MBRFREE="$(hexdump -e '"%d\n"' -s446 -n1 gen/stage0.bin)"
-RESTFREE="$(hexdump -e '"%d\n"' -s448 -n1 gen/stage0.bin)"
+MBRFREE="$(hexdump -e '"%d\n"' -s446 -n2 gen/stage0.bin)"
+RESTFREE="$(hexdump -e '"%d\n"' -s448 -n2 gen/stage0.bin)"
 accent "$MBRFREE + $RESTFREE = $(($MBRFREE + $RESTFREE)) bytes free"
 
 # If you find a way to create only one 64 megabyte file without using loop devices, hit me up

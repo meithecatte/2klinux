@@ -845,7 +845,7 @@ doCOMMA:
 	mov ebx, [edx]
 	mov [ebx], eax
 	add dword[edx], 4
-	NEXT
+	ret
 
 link_CSTORE:
 	dw $-link_COMMA
@@ -975,9 +975,8 @@ link_KEY:
 	db 3, 'KEY'
 KEY:
 	call doKEY
-	movzx eax, al
-	push eax
-	NEXT
+	xchg ecx, eax
+	jmp short ..@pushecxNEXT
 
 doKEY:
 	mov ebx, [ebp+dOFFSET]
@@ -991,6 +990,7 @@ doKEY:
 
 	xor ebx, ebx
 .nonextcluster:
+	xor eax, eax
 	mov al, [FileBuffer+ebx]
 	inc ebx
 	mov [ebp+dOFFSET], ebx
@@ -1000,15 +1000,13 @@ link_WORD:
 	dw $-link_KEY
 	db 4, 'WORD'
 _WORD:
-	call doWORD
-	push dword WORDBuffer
-	push ecx
-	NEXT
+	push dword ..@pusheaxecxNEXT
+	; fallthrough
 
 doWORD:
 	call doKEY
 	cmp al, ' '
-	jbe _WORD
+	jbe doWORD
 	xor ecx, ecx
 .loop:
 	mov [WORDBuffer+ecx], al
@@ -1016,8 +1014,10 @@ doWORD:
 	call doKEY
 	cmp al, ' '
 	ja .loop
-	mov byte[WORDBuffer+ecx], 0
+	mov eax, WORDBuffer
+	mov byte[eax+ecx], 0
 	ret
+
 
 link_NUMBER:
 	dw $-link_WORD
@@ -1026,9 +1026,12 @@ NUMBER:
 	pop ecx
 	pop eax
 	call doNUMBER
+..@pusheaxecxNEXT:
 	push eax
+..@pushecxNEXT:
 	push ecx
-	NEXT
+..@jmpNEXT:
+	jmp short ..@NEXT
 
 ; Parses a number in the base specified by BASE
 ; Input:
@@ -1096,7 +1099,7 @@ link_CREATE:
 CREATE:
 	pop ecx
 	pop eax
-	push word ..@NEXT
+	push dword ..@NEXT
 	; fallthrough
 
 doCREATE:
@@ -1124,8 +1127,10 @@ FIND:
 	pop ecx
 	pop ebx
 	call doFIND
+..@pushedxNEXT:
 	push edx
-	NEXT
+	jmp short ..@NEXT
+
 
 ; Input:
 ;  ECX = name length
@@ -1148,14 +1153,16 @@ doFIND:
 	push ecx
 	repe cmpsb
 	pop ecx
-	je .end
+	je .found
 .next:
 	movzx eax, word[edx]
 	or eax, eax
-	jz short .end
+	jz short .notfound
 	sub edx, eax
 	jmp .loop
-.end:
+.notfound:
+	xor edx, edx
+.found:
 	pop edi
 	pop esi
 	ret
@@ -1172,11 +1179,11 @@ COLON:
 	mov edi, [ebp+dHERE]
 	mov al, 0xE8
 	stosb
+	mov eax, DOCOL-4 ; eax = DOCOL - (edi + 4)
+	sub eax, edi
+	stosd
 	mov [ebp+dHERE], edi
 	pop edi
-	mov eax, DOCOL+4
-	sub eax, edi
-	call doCOMMA
 
 	xor eax, eax
 	dec eax
@@ -1190,8 +1197,7 @@ SEMICOLON:
 	call doCOMMA
 
 	mov eax, [ebp+dLATEST]
-	add eax, 2
-	and byte[eax], ~F_HIDDEN
+	and byte[eax+2], ~F_HIDDEN
 
 	xor eax, eax
 ChangeState:
@@ -1203,16 +1209,19 @@ link_INTERPRET:
 	db 9, 'INTERPRET'
 INTERPRET:
 	call doWORD
+	mov ebx, eax
 	call doFIND
-	or eax, eax
+	or edx, edx
 	jz short .handle_number ; if the word isn't found, assume it's a number
 
-	mov cl, [eax+2] ; get the flags field
-	add eax, 2
-	movzx ebx, byte[eax]
-	and bl, F_LENMASK
-	add eax, ebx
+	add edx, 2
+	mov cl, [edx]
+	movzx eax, cl
+	and al, F_LENMASK
+	add edx, eax
+	inc edx
 
+	xchg eax, edx
 	mov ebx, [ebp+dSTATE]
 	or ebx, ebx
 	jz short .interpret ; if we're in interpreting mode, execute the word
@@ -1221,7 +1230,7 @@ INTERPRET:
 	jz short .comma_next
 
 .interpret:
-	jmp [eax]
+	jmp eax
 
 .handle_number:
 	mov eax, WORDBuffer
