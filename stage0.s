@@ -10,7 +10,8 @@
 
 ; EBP is always set to the value 0x7C00 to generate shorter instructions for accessing some
 ; memory locations. Constants that start with a lowercase d represent the offset from 0x7C00, and
-; therefore EBP, of some memory address.
+; therefore EBP, of some memory address. Almost all of them need to match up with the offsets defined
+; at the very beginning of stage1.frt
 
 ; We use a part of the code section as variables after executing it:
 ;  7C00 -  7C0F -> The EDD disk packet
@@ -19,7 +20,7 @@
 %define dDiskPacketDestSegment 6
 %define dDiskPacketLBA         8
 ;  7C10 -  7C13 -> The currently loaded cluster
-%define dCurrentCluster 16
+%define dCLUSTER 16
 ;  7C14 -  7C23 -> Forth variables, all are 4 bytes long
 %define dOFFSET 20 ; The address of the next byte KEY will read, relative to FileBuffer
 %define dLATEST 24 ; The LFA of the last Forth word defined.
@@ -177,7 +178,7 @@ NotFoundError:
 	jmp short Error
 
 ReadNextCluster:
-	mov eax, dword[bp+dCurrentCluster]
+	mov eax, dword[bp+dCLUSTER]
 	shr eax, 7
 	db 0x66, 0x05 ; add eax, imm32
 ..@FirstFATSectorPatch:
@@ -185,7 +186,7 @@ ReadNextCluster:
 
 	mov di, FATBuffer
 	call DiskRead
-	movzx bx, byte[bp+dCurrentCluster]
+	movzx bx, byte[bp+dCLUSTER]
 	shl bl, 1
 	shl bx, 1
 	mov eax, dword[di+bx]
@@ -194,7 +195,7 @@ ReadNextCluster:
 	jc short ..@Return
 
 ReadCluster:
-	mov dword[bp+dCurrentCluster], eax
+	mov dword[bp+dCLUSTER], eax
 	db 0x66, 0x05 ; add eax, imm32
 ..@ClusterZeroLBAPatch:
 	dd 0
@@ -505,40 +506,8 @@ R0:
 	push dword FORTHR0
 	NEXT
 
-link_OFFSET:
-	dw $-link_R0
-	db 6, 'OFFSET'
-OFFSET:
-	lea eax, [ebp+dOFFSET]
-	push eax
-	NEXT
-
-link_LATEST:
-	dw $-link_OFFSET
-	db 6, 'LATEST'
-LATEST:
-	lea eax, [ebp+dLATEST]
-	push eax
-	NEXT
-
-link_HERE:
-	dw $-link_LATEST
-	db 4, 'HERE'
-HERE:
-	lea eax, [ebp+dHERE]
-	push eax
-	NEXT
-
-link_STATE:
-	dw $-link_HERE
-	db 5, 'STATE'
-STATE:
-	lea eax, [ebp+dSTATE]
-	push eax
-	NEXT
-
 link_EXIT:
-	dw $-link_STATE
+	dw $-link_R0
 	db 4, 'EXIT'
 EXIT:
 	mov esi, [edi]
@@ -975,8 +944,8 @@ link_KEY:
 	db 3, 'KEY'
 KEY:
 	call doKEY
-	xchg ecx, eax
-	jmp short ..@pushecxNEXT
+	push eax
+	NEXT
 
 doKEY:
 	mov ebx, [ebp+dOFFSET]
@@ -1000,8 +969,10 @@ link_WORD:
 	dw $-link_KEY
 	db 4, 'WORD'
 _WORD:
-	push dword ..@pusheaxecxNEXT
-	; fallthrough
+	call doWORD
+	push eax
+	push ecx
+	NEXT
 
 doWORD:
 	call doKEY
@@ -1026,12 +997,9 @@ NUMBER:
 	pop ecx
 	pop eax
 	call doNUMBER
-..@pusheaxecxNEXT:
 	push eax
-..@pushecxNEXT:
 	push ecx
-..@jmpNEXT:
-	jmp short ..@NEXT
+	NEXT
 
 ; Parses a number in the base specified by BASE
 ; Input:
@@ -1090,17 +1058,49 @@ EMIT:
 	pop eax
 	call CallRM
 	dw PrintChar
-..@NEXT:
+	NEXT
+
+; ( -- )
+; LOAD the first cluster of the root directory
+link_ROOT:
+	dw $-link_EMIT
+	db 4, 'ROOT'
+ROOT:
+	mov eax, dword[BPBRootCluster]
+	jmp short LOAD
+
+; ( cluster -- )
+; A thin wrapper around ReadCluster
+link_LOAD:
+	dw $-link_ROOT
+	db 4, 'LOAD'
+LOAD:
+	call CallRM
+	dw ReadCluster
+	NEXT
+
+; ( name-pointer -- )
+; A thin wrapper around FindFile
+link_FILE:
+	dw $-link_LOAD
+	db 4, 'FILE'
+FILE:
+	pop eax
+	push esi
+	xchg esi, eax
+	call CallRM
+	dw FindFile
+	pop esi
 	NEXT
 
 link_CREATE:
-	dw $-link_EMIT
+	dw $-link_FILE
 	db 6, 'CREATE'
 CREATE:
 	pop ecx
 	pop eax
-	push dword ..@NEXT
-	; fallthrough
+	call doCREATE
+	NEXT
 
 doCREATE:
 	push esi
@@ -1127,9 +1127,8 @@ FIND:
 	pop ecx
 	pop ebx
 	call doFIND
-..@pushedxNEXT:
 	push edx
-	jmp short ..@NEXT
+	NEXT
 
 
 ; Input:

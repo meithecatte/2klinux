@@ -1,3 +1,9 @@
+: CLUSTER $7C10 ;
+: OFFSET  $7C14 ;
+: LATEST  $7C18 ;
+: HERE    $7C1C ;
+: STATE   $7C20 ;
+
 : NIP SWAP DROP ;
 : TUCK SWAP OVER ;
 
