@@ -482,32 +482,25 @@ PM_Entry:
 	mov ah, FORTHR0 >> 8
 	xchg edi, eax
 
-	jmp short QUIT
+	; fallthrough
+; Clear the return stack and invoke the INTERPRETer repeatedly
+QUIT:
+	call DOCOL
+.loop:
+	dd INTERPRET
+	dd BRANCH, .loop
+
 DOCOL:
 	sub edi, 4
 	mov [edi], esi
 	pop esi
 	NEXT
 
-link_QUIT:
-	dw 0
-	db 4, 'QUIT'
-QUIT:
-	call DOCOL
-.loop:
-	dd R0, RPSTORE
-	dd INTERPRET
-	dd BRANCH, .loop
-
-link_R0:
-	dw $-link_QUIT
-	db 2, 'R0'
-R0:
-	push dword FORTHR0
-	NEXT
-
+; ( -- )
+; Stop executing the current word and continue executing its callee. Appended automatically by ; at
+; the end of every definition, but may be used explicitly, usually in conditionals
 link_EXIT:
-	dw $-link_R0
+	dw 0
 	db 4, 'EXIT'
 EXIT:
 	mov esi, [edi]
@@ -1095,7 +1088,7 @@ FILE:
 
 link_CREATE:
 	dw $-link_FILE
-	db 6, 'CREATE'
+	db 11, 'CREATE-BARE'
 CREATE:
 	pop ecx
 	pop eax
