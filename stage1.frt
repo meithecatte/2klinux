@@ -6,6 +6,10 @@
 : HERE    $7C1C ;
 : STATE   $7C20 ;
 
+: F_IMMED   $80 ;
+: F_HIDDEN  $20 ;
+: F_LENMASK $1F ;
+
 : NL 10 ;
 : BL 32 ;
 : CR NL EMIT ;
@@ -21,7 +25,7 @@
 : CXOR! DUP C@ ROT XOR SWAP C! ;
 : CAND! DUP C@ ROT AND SWAP C! ;
 
-: IMMEDIATE LATEST @ 2 + $80 SWAP COR! ; IMMEDIATE
+: IMMEDIATE LATEST @ 2 + F_IMMED SWAP COR! ; IMMEDIATE
 : [ IMMEDIATE FALSE STATE ! ;
 : ] TRUE STATE ! ;
 
@@ -41,6 +45,9 @@
 \ HERE - holds the address of the first free byte of memory
 \ STATE - FALSE if interpreting words, TRUE when compiling
 
+\ Furthermore, the flags describing the flags field are also defined. Their meaning is the same as
+\ of the corresponding constants in the assembly file.
+
 \ Below, two character constants are defined - BL (for BLank) returns the character value of the
 \ space character, and NL (for New Line) - the character value of the newline character. These can
 \ be used with EMIT to print characters on screen, as demonstated by CR.
@@ -57,8 +64,7 @@
 \ immediate then the interpreter runs it immediately *even if it's in compile mode*. One such
 \ example is the ; word used to end definitions. We want it to run now, not when the new word is
 \ used. LATEST @ gives the address of the last word defined, 2 + transforms it into the address of
-\ the flags field, which is then ORed with $80 to set the highest bit, which contains the F_IMMED
-\ flag.
+\ the flags field, which is then ORed with F_IMMED to set the immediate flag.
 
 \ IMMEDIATE is then marked immediate with itself to make it possible to say : NEW-WORD IMMEDIATE
 \ which is more idiomatic to Forth. [ and ] are words that can be used to temporarily enter the
@@ -72,28 +78,6 @@
 \ definition will become clear when we define control flow structures. However, some simpler words
 \ will come first.
 
-: CELLS 2 LSHIFT ; \ CELLS turns a number of cells into a number of bytes
-: NIP \ ( a b -- b )
-  SWAP DROP ;
-: TUCK \ ( b a -- a b a )
-  SWAP OVER ;
-: PICK \ ( xu ... x1 x0 u -- xu ... x1 x0 xu )
-  CELLS SP@ + \ ( xu ... x1 x0 addr-x_u-1 )
-  4+ @ ;
-
-: 2DROP \ ( a b -- )
-  DROP DROP ;
-: 2DUP \ ( a b -- a b a b )
-  OVER \ ( a b a )
-  OVER \ ( a b a b )
-  ;
-: 2SWAP \ ( a b c d -- c d a b )
-  >R    \ ( a b c R: d )
-  -ROT  \ ( c a b R: d )
-  R>    \ ( c a b d )
-  -ROT  \ ( c d a b )
-  ;
-
 \ Because of space restriction of stage0.asm, only some comparsions are primitive. The rest can be
 \ done by inverting the result of a different comparison.
 : <> = INVERT ;
@@ -106,12 +90,6 @@
 
 \ In two's complement, you invert all the bits and add one to compute the additive inverse.
 : NEGATE INVERT 1+ ;
-
-\ The primitive word /MOD leaves both the remainder and the quotient on the stack, in that order
-\ (on x86, the idiv instruction calculates both anyway). Now we can define / and MOD in terms of
-\ /MOD and stack manipulation words.
-: / /MOD NIP ;
-: MOD /MOD DROP ;
 
 \ >CFA takes an address of a word in the dictionary and returns its execution token, i. e. the
 \ address of its first assembly instruction (`call DOCOL' in case of Forth words)
@@ -138,6 +116,12 @@
 
 : POSTPONE IMMEDIATE ' , ;
 
+\ also known as [COMPILE]
+
+: [COMPILE] IMMEDIATE POSTPONE POSTPONE ;
+
+: RECURSE IMMEDIATE LATEST @ >CFA , ;
+
 : CHAR WORD DROP C@ ;
 : [CHAR] IMMEDIATE CHAR POSTPONE LITERAL ;
 : ['] IMMEDIATE ' POSTPONE LITERAL ;
@@ -146,11 +130,10 @@
 \ THEN.
 
 \ before IF inside THEN after
-
 \ compiles to
 
 \ before 0BRANCH ptr inside after
-\                 \---------^
+\                 \_________^
 
 : IF IMMEDIATE ['] 0BRANCH ,
   HERE @ \ save the location of the branch destination word on the data stack DURING COMPILATION
@@ -162,12 +145,12 @@
   SWAP ! ;
 
 \ before IF true ELSE false THEN after
-
 \ compiles to
 
 \ before 0BRANCH ptr1 true BRANCH ptr2 false after
-\                 \----------------+---^     ^
-\                                  \---------+
+\                 \________________|___^     ^
+\                                  T         |
+\                                  \_________/
 
 : ELSE IMMEDIATE \ ( ptr1-addr )
   ['] BRANCH ,
@@ -176,13 +159,153 @@
   HERE @ \ ( ptr1-addr ptr2-addr ptr1-val )
   ROT ! ;
 
-: TEST-IF-ELSE IF [CHAR] T ELSE [CHAR] F THEN ;
-: TEST-IF IF [CHAR] Y EMIT THEN ;
+\ before BEGIN inside AGAIN after
+\ compiles to
 
-CHAR Q EMIT
-TRUE TEST-IF-ELSE EMIT
-CHAR Z EMIT
-FALSE TEST-IF-ELSE EMIT
-CHAR P EMIT
+\ before inside BRANCH ptr after
+\        ^______________/
 
-: HIDDEN 2 + DUP @ $20 XOR SWAP ! ;
+: BEGIN IMMEDIATE HERE @ ;
+: AGAIN IMMEDIATE ['] BRANCH , , ;
+
+\ before BEGIN inside UNTIL after
+\ compiles to
+
+\ before inside 0BRANCH ptr after
+\        ^_______________/
+
+: UNTIL IMMEDIATE ['] 0BRANCH , , ;
+
+\ before BEGIN condition WHILE inside REPEAT after
+\ compiles to
+
+\ before condition 0BRANCH ptr1 inside BRANCH ptr2 after
+\        ^__________________|__________________/   ^
+\                           \______________________/
+
+: WHILE IMMEDIATE ['] 0BRANCH , HERE @ 0 , ;
+: REPEAT IMMEDIATE \ ( ptr2-val ptr1-addr )
+  ['] BRANCH , SWAP , \ ( ptr1-addr )
+  HERE @ SWAP ! ;
+
+\ CASE                         ( push 0 during compilation to count the necessary amount of IFs )
+\ test1 OF ... ENDOF           test1 OVER = IF DROP ... ELSE
+\ test2 OF ... ENDOF           test2 OVER = IF DROP ... ELSE
+\ test3 OF ... ENDOF           test3 OVER = IF DROP ... ELSE
+\ default-case                 default-case
+\ ENDCASE                      DROP THEN THEN THEN
+
+: CASE IMMEDIATE 0 ;
+: OF IMMEDIATE
+  ['] OVER ,
+  ['] = ,
+  POSTPONE IF
+  ['] DROP ,
+  ;
+
+: ENDOF IMMEDIATE POSTPONE ELSE ;
+: ENDCASE IMMEDIATE
+  ['] DROP ,
+  BEGIN
+    DUP 0<>
+  WHILE
+    POSTPONE THEN
+  REPEAT
+  DROP
+  ;
+
+\ this is enough control structures to define parenthesis comments
+: ( IMMEDIATE \ ( -- )
+  1                    \ allow nested comments by storing the depth
+  BEGIN KEY            \ ( depth key )
+    DUP [CHAR] ( = IF  \ ( depth key )
+      DROP 1+          \ ( depth )
+    ELSE [CHAR] ) = IF \ ( depth )
+      1-               \ ( depth )
+    THEN THEN          \ ( depth )
+  DUP 0= UNTIL         \ ( depth )
+  DROP                 \ ( )
+;
+
+: CELLS ( CELLS turns a number of cells into a number of bytes ) 2 LSHIFT ;
+: CELL+ 4+ ;
+: NIP ( a b -- b ) SWAP DROP ;
+: TUCK ( b a -- a b a ) SWAP OVER ;
+: PICK ( x(u) ... x(1) x(0) u -- x(u) ... x(1) x(0) x(u) )
+  CELLS SP@ + ( x(u) ... x(1) x(0) addrof-x(u-1) )
+  4+ @ ;
+
+: 2DROP ( a b -- ) DROP DROP ;
+: 2DUP ( a b -- a b a b ) OVER ( a b a ) OVER ( a b a b ) ;
+: 2SWAP ( a b c d -- c d a b )
+  >R ( a b c R: d )
+  -ROT ( c a b R: d )
+  R> ( c a b d )
+  -ROT ( c d a b ) ;
+
+: 2RDROP ( R: x x -- R: ) RDROP RDROP ;
+
+( The primitive word /MOD leaves both the remainder and the quotient on the stack, in that order
+  (on x86, the idiv instruction calculates both anyway). Now we can define / and MOD in terms of
+  /MOD and stack manipulation words. )
+: / /MOD NIP ;
+: MOD /MOD DROP ;
+
+ ( HIDDEN takes an address of a dictionary entry and toggles its hidden flag )
+: HIDDEN 2 + F_HIDDEN SWAP CXOR! ;
+: HIDE WORD FIND HIDDEN ;
+
+: WITHIN ( c a b -- a<=c<b )
+  2 PICK ( c a b c )
+  >      ( c a c<b )
+  -ROT   ( c<b c a )
+  >=     ( c<b a<=c )
+  AND    ( a<=c<b )
+  ;
+
+: DEPTH ( -- n )
+  S0 SP@ - 4- 2 RSHIFT ;
+
+\ string literals are compiled as follows:
+\   LITSTRING length string-itself rest-of-code
+: LITSTRING
+  R@ 4+ ( string-address )
+  R@ @  ( string-address string-length )
+  R> OVER + >R ( move the return address )
+  ;
+
+: COMPILE-STRING-CHARACTERS
+  ( a helper function used to compile characters until a " )
+  BEGIN
+    KEY DUP [CHAR] " <>
+  WHILE
+    C,
+  REPEAT
+  DROP ;
+
+: S" IMMEDIATE
+  ( S" behaves correctly even in immediate mode )
+  STATE @ IF
+    ( we're in compile mode, compile LITSTRING )
+    ['] LITSTRING ,
+    HERE @ ( save the address of the length word on the stack )
+    0 ,    ( compile a dummy length )
+    COMPILE-STRING-CHARACTERS
+    DUP    ( length-addr length-addr )
+    4+     ( length-addr first-char-addr )
+    HERE @ ( length-addr first-char-addr byte-after-last-char-addr )
+    SWAP - ( length-addr length )
+    SWAP ! ( )
+  ELSE
+    ( we're in immediate mode, use the currently free bytes but don't update HERE )
+    HERE @ ( first-char-addr )
+    COMPILE-STRING-CHARACTERS
+    HERE @ ( first-char-addr byte-after-last-char-addr )
+    OVER - ( first-char-addr length )
+    OVER HERE ! ( restore HERE )
+  THEN
+;
+
+HIDE COMPILE-STRING-CHARACTERS
+
+: .DIGIT [CHAR] 0 + EMIT ;
