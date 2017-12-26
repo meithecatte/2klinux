@@ -711,8 +711,34 @@ ZGT:
 	push eax
 	NEXT
 
-link_AND:
+link_ULT:
 	dw $-link_ZGT
+	db 2, 'U<'
+ULT:
+	pop ecx
+	pop ebx
+	xor eax, eax
+	cmp ebx, ecx
+	setnb al
+	dec eax
+	push eax
+	NEXT
+
+link_UGT:
+	dw $-link_ULT
+	db 2, 'U>'
+UGT:
+	pop ecx
+	pop ebx
+	xor eax, eax
+	cmp ebx, ecx
+	setna al
+	dec eax
+	push eax
+	NEXT
+
+link_AND:
+	dw $-link_UGT
 	db 3, 'AND'
 _AND:
 	pop eax
