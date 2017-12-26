@@ -218,11 +218,10 @@
 : ( IMMEDIATE \ ( -- )
   1                    \ allow nested comments by storing the depth
   BEGIN KEY            \ ( depth key )
-    DUP [CHAR] ( = IF  \ ( depth key )
-      DROP 1+          \ ( depth )
-    ELSE [CHAR] ) = IF \ ( depth )
-      1-               \ ( depth )
-    THEN THEN          \ ( depth )
+    CASE
+      [CHAR] ( OF 1+ ENDOF
+      [CHAR] ) OF 1- ENDOF
+    ENDCASE
   DUP 0= UNTIL         \ ( depth )
   DROP                 \ ( )
 ;
