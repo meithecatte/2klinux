@@ -25,7 +25,10 @@
 : CXOR! DUP C@ ROT XOR SWAP C! ;
 : CAND! DUP C@ ROT AND SWAP C! ;
 
-: IMMEDIATE LATEST @ 2 + F_IMMED SWAP COR! ; IMMEDIATE
+: IMMEDIATE
+  LATEST @
+  2 + F_IMMED SWAP COR! ; IMMEDIATE
+
 : [ IMMEDIATE FALSE STATE ! ;
 : ] TRUE STATE ! ;
 
@@ -88,8 +91,14 @@
 : 0>= 0< INVERT ;
 : 0<= 0> INVERT ;
 
+: U>= U< INVERT ;
+: U<= U> INVERT ;
+
 \ In two's complement, you invert all the bits and add one to compute the additive inverse.
 : NEGATE INVERT 1+ ;
+
+\ Used for checking whether a dictionary entry is marked immediate
+: IMMEDIATE? 2 + C@ F_IMMED AND 0<> ;
 
 \ >CFA takes an address of a word in the dictionary and returns its execution token, i. e. the
 \ address of its first assembly instruction (`call DOCOL' in case of Forth words)
@@ -106,7 +115,8 @@
 \ : SOME-WORD [ 2 2 + ] LITERAL ;
 \ This is equivalent to : SOME-WORD 4 ; but sometimes you want to show where a value comes from
 \ without recalculating it every time the word is executed. It is also useful when defining compile
-\ time words, when combined with POSTPONE
+\ time words, when combined with POSTPONE or [COMPILE]
+
 \ Consider this simpler version first: : LITERAL IMMEDIATE ['] LIT , , ;
 : LITERAL IMMEDIATE
   [ ' LIT     \ ' does not behave the way one could expect it to in compile mode. ['] is what you
@@ -114,17 +124,28 @@
     DUP , , ] \ LIT LIT will push the address of LIT on the stack
   , , ;
 
-: POSTPONE IMMEDIATE ' , ;
+\ [COMPILE] can be used on immediate words only
+: [COMPILE] IMMEDIATE ' , ;
 
-\ also known as [COMPILE]
+\ ['] SOME-WORD is equivalent to [ ' SOME-WORD ] LITERAL
+: ['] IMMEDIATE ' [COMPILE] LITERAL ;
 
-: [COMPILE] IMMEDIATE POSTPONE POSTPONE ;
+\ COMPILE can be used on non-immediate words only, COMPILE SOME-WORD <=> ['] SOME-WORD ,
+: COMPILE IMMEDIATE
+  ' [COMPILE] LITERAL
+  ['] , , \ COMPILE ,
+  ;
 
+\ COMPILE and [COMPILE] will later get merged into one word called POSTPONE, but we need to define
+\ IF, ELSE and THEN first
+
+\ RECURSE calls the word that's currently being defined
 : RECURSE IMMEDIATE LATEST @ >CFA , ;
 
 : CHAR WORD DROP C@ ;
-: [CHAR] IMMEDIATE CHAR POSTPONE LITERAL ;
-: ['] IMMEDIATE ' POSTPONE LITERAL ;
+
+\ [CHAR] X is equivalent to [ CHAR X ] LITERAL
+: [CHAR] IMMEDIATE CHAR [COMPILE] LITERAL ;
 
 \ With all of that up our sleeves we can pursue defining control flow words, starting with IF and
 \ THEN.
@@ -135,7 +156,8 @@
 \ before 0BRANCH ptr inside after
 \                 \_________^
 
-: IF IMMEDIATE ['] 0BRANCH ,
+: IF IMMEDIATE
+  COMPILE 0BRANCH
   HERE @ \ save the location of the branch destination word on the data stack DURING COMPILATION
   0 , \ compile a dummy destination
   ;
@@ -153,11 +175,20 @@
 \                                  \_________/
 
 : ELSE IMMEDIATE \ ( ptr1-addr )
-  ['] BRANCH ,
+  COMPILE BRANCH
   HERE @ \ ( ptr1-addr ptr2-addr )
   0 ,    \ compile a dummy ptr2
   HERE @ \ ( ptr1-addr ptr2-addr ptr1-val )
   ROT ! ;
+
+: POSTPONE IMMEDIATE
+  WORD FIND DUP IMMEDIATE? IF
+    >CFA ,
+  ELSE
+    >CFA [COMPILE] LITERAL
+    COMPILE ,
+  THEN
+  ;
 
 \ before BEGIN inside AGAIN after
 \ compiles to
@@ -166,7 +197,7 @@
 \        ^______________/
 
 : BEGIN IMMEDIATE HERE @ ;
-: AGAIN IMMEDIATE ['] BRANCH , , ;
+: AGAIN IMMEDIATE POSTPONE BRANCH , ;
 
 \ before BEGIN inside UNTIL after
 \ compiles to
@@ -174,7 +205,7 @@
 \ before inside 0BRANCH ptr after
 \        ^_______________/
 
-: UNTIL IMMEDIATE ['] 0BRANCH , , ;
+: UNTIL IMMEDIATE POSTPONE 0BRANCH , ;
 
 \ before BEGIN condition WHILE inside REPEAT after
 \ compiles to
@@ -183,10 +214,15 @@
 \        ^__________________|__________________/   ^
 \                           \______________________/
 
-: WHILE IMMEDIATE ['] 0BRANCH , HERE @ 0 , ;
+: WHILE IMMEDIATE
+  POSTPONE 0BRANCH
+  HERE @
+  0 , ;
 : REPEAT IMMEDIATE \ ( ptr2-val ptr1-addr )
-  ['] BRANCH , SWAP , \ ( ptr1-addr )
-  HERE @ SWAP ! ;
+  POSTPONE BRANCH
+  SWAP , \ ( ptr1-addr )
+  HERE @
+  SWAP ! ;
 
 \ CASE                         ( push 0 during compilation to count the necessary amount of IFs )
 \ test1 OF ... ENDOF           test1 OVER = IF DROP ... ELSE
@@ -197,15 +233,18 @@
 
 : CASE IMMEDIATE 0 ;
 : OF IMMEDIATE
-  ['] OVER ,
-  ['] = ,
+  POSTPONE OVER
+  POSTPONE =
   POSTPONE IF
-  ['] DROP ,
+  POSTPONE DROP
   ;
 
-: ENDOF IMMEDIATE POSTPONE ELSE ;
+: ENDOF IMMEDIATE
+  POSTPONE ELSE
+  ;
+
 : ENDCASE IMMEDIATE
-  ['] DROP ,
+  POSTPONE DROP
   BEGIN
     DUP 0<>
   WHILE
@@ -215,7 +254,7 @@
   ;
 
 \ this is enough control structures to define parenthesis comments
-: ( IMMEDIATE \ ( -- )
+: ( IMMEDIATE          \ ( -- )
   1                    \ allow nested comments by storing the depth
   BEGIN KEY            \ ( depth key )
     CASE
@@ -243,6 +282,9 @@
   -ROT ( c d a b ) ;
 
 : 2RDROP ( R: x x -- R: ) RDROP RDROP ;
+: 2R> R> R> ;
+: 2>R >R >R ;
+: RSWAP 2>R SWAP 2R> ;
 
 ( The primitive word /MOD leaves both the remainder and the quotient on the stack, in that order
   (on x86, the idiv instruction calculates both anyway). Now we can define / and MOD in terms of
@@ -250,29 +292,25 @@
 : / /MOD NIP ;
 : MOD /MOD DROP ;
 
- ( HIDDEN takes an address of a dictionary entry and toggles its hidden flag )
+( HIDDEN takes an address of a dictionary entry and toggles its hidden flag )
 : HIDDEN 2 + F_HIDDEN SWAP CXOR! ;
+: HIDDEN? 2 + C@ F_HIDDEN AND 0<> ;
 : HIDE WORD FIND HIDDEN ;
 
-: WITHIN ( c a b -- a<=c<b )
-  2 PICK ( c a b c )
-  >      ( c a c<b )
-  -ROT   ( c<b c a )
-  >=     ( c<b a<=c )
-  AND    ( a<=c<b )
-  ;
+: WITHIN ( c a b -- within? ) OVER - >R - R> U< ;
 
 : DEPTH ( -- n )
   S0 SP@ - 4- 2 RSHIFT ;
 
-\ string literals are compiled as follows:
-\   LITSTRING length string-itself rest-of-code
+( string literals are compiled as follows:
+    LITSTRING length string-itself rest-of-code )
 : LITSTRING
   R@ 4+ ( string-address )
   R@ @  ( string-address string-length )
   R> OVER + >R ( move the return address )
   ;
 
+( a perfect example of HIDE )
 : COMPILE-STRING-CHARACTERS
   ( a helper function used to compile characters until a " )
   BEGIN
@@ -308,3 +346,99 @@
 HIDE COMPILE-STRING-CHARACTERS
 
 : .DIGIT [CHAR] 0 + EMIT ;
+
+(
+  we can now define DO, ?DO, LOOP, +LOOP and LEAVE. It would be relatively simple if not for LEAVE.
+  The plan for LEAVE is the following: at first, compile it as 2RDROP BRANCH LEAVE. When LOOP or
+  +LOOP is executed, it looks for any instances of BRANCH or 0BRANCH with LEAVE as the destination
+  and replace it with the appropriate address. The loop control parameters are stored on the return
+  stack, with the limit on top.
+
+  DO -> 2>R loop-inside
+     *      ^
+  ?DO -> DO-RUNTIME 0BRANCH LEAVE loop-inside
+                    *             ^
+)
+
+: DO-RUNTIME 2DUP 2>R <> ( should-loop-at-all? ) ;
+
+(
+  This means that LOOP should look for BRANCH LEAVE two cells before the actual pointer. This will
+  handle ?DO correctly without breaking DO (the word before 2>R would have to be BRANCH, which
+  would make no sense). * shows where LOOP will start correcting branches, and ^ shows the pointer
+  passed to LOOP and the destination of the branch at the end of the loop.
+
+   LOOP ->  LOOP-RUNTIME 0BRANCH loop-beginning 2RDROP
+  +LOOP -> +LOOP-RUNTIME 0BRANCH loop-beginning 2RDROP
+                                                ^ LEAVE jumps here
+)
+
+: LOOP-RUNTIME 2R> 1+ 2DUP 2>R = ;
+: +LOOP-RUNTIME ( diff R: old-counter limit )
+  2R>           ( diff limit old-counter )
+  ROT OVER +    ( limit old-counter new-counter )
+  DUP R>        ( limit old-counter new-counter R: new-counter )
+  ROT           ( old-counter new-counter limit R: new-counter )
+  DUP R>        ( old-counter new-counter limit R: new-counter limit )
+  -ROT          ( limit old-counter new-counter R: new-counter limit )
+  WITHIN        ( should-stop-looping? R: new-counter limit )
+  ;
+
+: LEAVE IMMEDIATE
+  POSTPONE 2RDROP
+  POSTPONE BRANCH
+  [ LATEST @ >CFA ] LITERAL ,
+  ;
+
+: DO IMMEDIATE
+  POSTPONE 2>R
+  HERE @
+  ;
+
+: ?DO IMMEDIATE
+  POSTPONE DO-RUNTIME
+  POSTPONE 0BRANCH
+  ['] LEAVE ,
+  ;
+
+: SOME-LOOP
+  POSTPONE 0BRANCH
+  DUP ,
+  HERE @ ( loop-beginning loop-end )
+  POSTPONE 2RDROP
+  SWAP 4- ( loop-end curr-address )
+  BEGIN
+    DUP @ ['] LEAVE = IF
+      DUP 4- @ DUP ['] BRANCH = SWAP ['] 0BRANCH = OR IF
+        2DUP !
+      THEN
+    THEN
+
+    DUP @ CASE
+      [']  BRANCH OF 8 + ENDOF
+      ['] 0BRANCH OF 8 + ENDOF
+      ['] LITSTRING OF
+        ( loop-end curr-address )
+        4+ DUP @ 4+ +
+      ENDOF
+      SWAP 4+ SWAP
+    ENDCASE
+
+    2DUP >
+  UNTIL
+  ;
+
+: LOOP IMMEDIATE
+  POSTPONE LOOP-RUNTIME
+  SOME-LOOP
+  ;
+
+: +LOOP IMMEDIATE
+  POSTPONE +LOOP-RUNTIME
+  SOME-LOOP
+  ;
+
+HIDE DO-RUNTIME
+HIDE LOOP-RUNTIME
+HIDE +LOOP-RUNTIME
+HIDE SOME-LOOP
