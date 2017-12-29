@@ -41,7 +41,7 @@ truncate -s 64M gen/fs.img
 
 info "Creating a FAT32 filesystem..."
 echo "You probably used fs.img instead of 2klinux.img. Read the goddamn manual." | mkfs.fat -m - -F 32 -S 512 gen/fs.img >/dev/null
-mcopy -i gen/fs.img     stage1.frt ::\STAGEONE.FRT
+mcopy -i gen/fs.img image-files/* ::
 mcopy -i gen/fs.img gen/stage0.bin ::\STAGENOT.BIN
 
 info "Creating the disk image..."

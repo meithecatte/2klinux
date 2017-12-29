@@ -281,7 +281,7 @@ StageZeroFilename:
 	db 'STAGENOTBIN', 0
 
 StageOneFilename:
-	db 'STAGEONEFRT', 0
+	db 'STAGE1  FRT', 0
 
 DiskErrorMsg:
 	db ' DISKERR', 0
@@ -1094,8 +1094,10 @@ link_LOAD:
 	dw $-link_ROOT
 	db 4, 'LOAD'
 LOAD:
+	pushad
 	call CallRM
 	dw ReadCluster
+	popad
 	NEXT
 
 ; ( name-pointer -- )
@@ -1105,11 +1107,12 @@ link_FILE:
 	db 4, 'FILE'
 FILE:
 	pop eax
-	push esi
-	xchg esi, eax
+	xchg edi, eax
+	pushad
 	call CallRM
 	dw FindFile
-	pop esi
+	popad
+	xchg edi, eax
 	NEXT
 
 link_CREATE:

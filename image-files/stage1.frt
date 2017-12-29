@@ -488,6 +488,18 @@ HIDE PUSH-IMM32,
 : EXECUTE [ HERE @ 12 + ] LITERAL !
   DROP ( this DROP is overwritten by the previous line ) ;
 
+: .DIGIT
+  DUP 10 > IF
+    10 - [CHAR] A + EMIT
+  ELSE
+    [CHAR] 0 + EMIT
+  THEN ;
+
+: ABS DUP 0< IF NEGATE THEN ;
+
 : HALT BEGIN AGAIN ;
-: TEST ." It's working!" ;
-' TEST EXECUTE CR HALT
+: CONCLUDE"
+  POSTPONE S" DROP ROOT FILE ;
+
+." It's working!" CR
+CONCLUDE" TEST    FRT"
