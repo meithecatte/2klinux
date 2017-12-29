@@ -190,6 +190,14 @@
   THEN
   ;
 
+\ HIDDEN takes an address of a dictionary entry and toggles its hidden flag
+: HIDDEN 2 + F_HIDDEN SWAP CXOR! ;
+: HIDDEN? 2 + C@ F_HIDDEN AND 0<> ;
+: HIDE WORD FIND HIDDEN ;
+
+HIDE COMPILE
+HIDE [COMPILE]
+
 \ before BEGIN inside AGAIN after
 \ compiles to
 
@@ -281,21 +289,23 @@
   R> ( c a b d )
   -ROT ( c d a b ) ;
 
-: 2RDROP ( R: x x -- R: ) RDROP RDROP ;
-: 2R> R> R> ;
-: 2>R >R >R ;
-: RSWAP 2>R SWAP 2R> ;
+: 2RDROP ( R: x x retaddr -- R: retaddr ) R> RDROP RDROP >R ;
+: 2R>      ( R: x y retaddr -- x y R: retaddr )
+  R> R> R> ( retaddr y x R: )
+  ROT      ( y x retaddr R: )
+  >R       ( y x R: retaddr )
+  SWAP     ( x y R: retaddr ) ;
+: 2>R      ( x y R: retaddr -- R: x y retaddr )
+  R>       ( x y retaddr R: )
+  -ROT     ( retaddr x y R: )
+  SWAP     ( retaddr y x R: )
+  >R >R >R ( R: x y retaddr ) ;
 
 ( The primitive word /MOD leaves both the remainder and the quotient on the stack, in that order
   (on x86, the idiv instruction calculates both anyway). Now we can define / and MOD in terms of
   /MOD and stack manipulation words. )
 : / /MOD NIP ;
 : MOD /MOD DROP ;
-
-( HIDDEN takes an address of a dictionary entry and toggles its hidden flag )
-: HIDDEN 2 + F_HIDDEN SWAP CXOR! ;
-: HIDDEN? 2 + C@ F_HIDDEN AND 0<> ;
-: HIDE WORD FIND HIDDEN ;
 
 : WITHIN ( c a b -- within? ) OVER - >R - R> U< ;
 
@@ -307,7 +317,7 @@
 : LITSTRING
   R@ 4+ ( string-address )
   R@ @  ( string-address string-length )
-  R> OVER + >R ( move the return address )
+  R> OVER + 4+ >R ( move the return address )
   ;
 
 ( a perfect example of HIDE )
@@ -324,7 +334,7 @@
   ( S" behaves correctly even in immediate mode )
   STATE @ IF
     ( we're in compile mode, compile LITSTRING )
-    ['] LITSTRING ,
+    POSTPONE LITSTRING
     HERE @ ( save the address of the length word on the stack )
     0 ,    ( compile a dummy length )
     COMPILE-STRING-CHARACTERS
@@ -345,22 +355,25 @@
 
 HIDE COMPILE-STRING-CHARACTERS
 
-: .DIGIT [CHAR] 0 + EMIT ;
-
 (
   we can now define DO, ?DO, LOOP, +LOOP and LEAVE. It would be relatively simple if not for LEAVE.
   The plan for LEAVE is the following: at first, compile it as 2RDROP BRANCH LEAVE. When LOOP or
   +LOOP is executed, it looks for any instances of BRANCH or 0BRANCH with LEAVE as the destination
   and replace it with the appropriate address. The loop control parameters are stored on the return
-  stack, with the limit on top.
+  stack, with the counter on top.
 
   DO -> 2>R loop-inside
      *      ^
-  ?DO -> DO-RUNTIME 0BRANCH LEAVE loop-inside
-                    *             ^
+  ?DO -> ?DO-RUNTIME 0BRANCH LEAVE loop-inside
+                     *             ^
 )
 
-: DO-RUNTIME 2DUP 2>R <> ( should-loop-at-all? ) ;
+: ?DO-RUNTIME
+  R>       ( limit counter retaddr )
+  -ROT     ( retaddr limit counter )
+  2DUP 2>R ( retaddr limit counter R: limit counter )
+  <>       ( retaddr should-loop-at-all? )
+  SWAP >R ;
 
 (
   This means that LOOP should look for BRANCH LEAVE two cells before the actual pointer. This will
@@ -373,19 +386,25 @@ HIDE COMPILE-STRING-CHARACTERS
                                                 ^ LEAVE jumps here
 )
 
-: LOOP-RUNTIME 2R> 1+ 2DUP 2>R = ;
-: +LOOP-RUNTIME ( diff R: old-counter limit )
-  2R>           ( diff limit old-counter )
-  ROT OVER +    ( limit old-counter new-counter )
-  DUP R>        ( limit old-counter new-counter R: new-counter )
-  ROT           ( old-counter new-counter limit R: new-counter )
-  DUP R>        ( old-counter new-counter limit R: new-counter limit )
-  -ROT          ( limit old-counter new-counter R: new-counter limit )
-  WITHIN        ( should-stop-looping? R: new-counter limit )
+: LOOP-RUNTIME  ( R: limit old-counter retaddr )
+  R> 2R>        ( retaddr limit old-counter )
+  1+            ( retaddr limit new-counter )
+  2DUP 2>R      ( retaddr limit new-counter R: limit new-counter )
+  =             ( retaddr should-stop-looping? R: limit new-counter )
+  SWAP >R
+  ;
+: +LOOP-RUNTIME ( diff R: limit old-counter retaddr )
+  R>            ( diff retaddr )
+  SWAP          ( retaddr diff )
+  2R>           ( retaddr diff limit old-counter )
+  ROT OVER +    ( retaddr limit old-counter new-counter )
+  ROT DUP R>    ( retaddr old-counter new-counter limit R: limit )
+  -ROT DUP R>   ( retaddr limit old-counter new-counter R: limit new-counter )
+  WITHIN        ( retaddr should-stop-looping? R: limit new-counter )
+  SWAP R> ;
   ;
 
 : LEAVE IMMEDIATE
-  POSTPONE 2RDROP
   POSTPONE BRANCH
   [ LATEST @ >CFA ] LITERAL ,
   ;
@@ -396,9 +415,10 @@ HIDE COMPILE-STRING-CHARACTERS
   ;
 
 : ?DO IMMEDIATE
-  POSTPONE DO-RUNTIME
+  POSTPONE ?DO-RUNTIME
   POSTPONE 0BRANCH
   ['] LEAVE ,
+  HERE @
   ;
 
 : SOME-LOOP
@@ -409,23 +429,22 @@ HIDE COMPILE-STRING-CHARACTERS
   SWAP 4- ( loop-end curr-address )
   BEGIN
     DUP @ ['] LEAVE = IF
-      DUP 4- @ DUP ['] BRANCH = SWAP ['] 0BRANCH = OR IF
-        2DUP !
+      ( loop-end curr-address )
+      DUP 4- @ ( loop-end curr-address word-before )
+      DUP ['] BRANCH = SWAP ['] 0BRANCH = OR IF
+        2DUP ( loop-end curr-address loop-end curr-address ) !
       THEN
     THEN
 
     DUP @ CASE
-      [']  BRANCH OF 8 + ENDOF
-      ['] 0BRANCH OF 8 + ENDOF
-      ['] LITSTRING OF
-        ( loop-end curr-address )
-        4+ DUP @ 4+ +
-      ENDOF
+      ['] LIT OF 8 + ENDOF
+      ['] LITSTRING OF 4+ DUP @ 4+ + ENDOF
       SWAP 4+ SWAP
     ENDCASE
 
     2DUP >
   UNTIL
+  2DROP
   ;
 
 : LOOP IMMEDIATE
@@ -438,7 +457,16 @@ HIDE COMPILE-STRING-CHARACTERS
   SOME-LOOP
   ;
 
+: I RP@ 4 + @ ;
+: J RP@ 12 + @ ;
+
 HIDE DO-RUNTIME
 HIDE LOOP-RUNTIME
 HIDE +LOOP-RUNTIME
 HIDE SOME-LOOP
+
+: TYPE 0 ?DO DUP C@ EMIT 1+ LOOP ;
+
+: HALT BEGIN AGAIN ;
+: TEST S" It's working!" TYPE ;
+TEST HALT
