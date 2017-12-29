@@ -59,7 +59,7 @@
 \ with all bits set, which corresponds with the two's complement representation of -1.
 
 \ OR!, XOR! and AND! all combine the corresponding bitwise operation with ! in a similar manner to
-\ +! and -!: VARIABLE @ $12 XOR VARIABLE ! is equivalent to $12 VARIABLE XOR!
+\ +! and -!: VAR @ $12 XOR VAR ! is equivalent to $12 VAR XOR!
 
 \ COR!, CXOR! and CAND! work in the same manner, but on single bytes instead of 32-bit cells.
 
