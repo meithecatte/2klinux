@@ -29,7 +29,8 @@
 
 : IMMEDIATE
   LATEST @
-  2 + F_IMMED SWAP COR! ; IMMEDIATE
+  2 + F_IMMED SWAP COR!
+; IMMEDIATE
 
 : [ IMMEDIATE FALSE STATE ! ;
 : ] TRUE STATE ! ;
@@ -111,7 +112,7 @@
   DUP C@   \ ( flags-address flags )
   F_LENMASK AND  \ ( flags-address name-length )
   + 1+     \ skip name-length bytes, plus one bytes for the flags byte itself
-  ;
+;
 
 \ ' SOME-WORD will push the execution token of SOME-WORD
 : ' WORD FIND >CFA ;
@@ -127,7 +128,8 @@
   [ ' LIT     \ ' does not behave the way one could expect it to in compile mode. ['] is what you
               \ should use in such a case, but we need LITERAL to implement [']
     DUP , , ] \ LIT LIT will push the address of LIT on the stack
-  , , ;
+  , ,
+;
 
 \ [COMPILE] can be used on immediate words only
 : [COMPILE] IMMEDIATE ' , ;
@@ -139,7 +141,7 @@
 : COMPILE IMMEDIATE
   ' [COMPILE] LITERAL
   ['] , , \ COMPILE ,
-  ;
+;
 
 \ COMPILE and [COMPILE] will later get merged into one word called POSTPONE, but we need to define
 \ IF, ELSE and THEN first
@@ -165,11 +167,12 @@
   COMPILE 0BRANCH
   HERE @ \ save the location of the branch destination word on the data stack DURING COMPILATION
   0 , \ compile a dummy destination
-  ;
+;
 
 : THEN IMMEDIATE \ ( ptr-addr )
   HERE @ \ ( ptr-addr ptr-val )
-  SWAP ! ;
+  SWAP !
+;
 
 \ before IF true ELSE false THEN after
 \ compiles to
@@ -184,7 +187,8 @@
   HERE @ \ ( ptr1-addr ptr2-addr )
   0 ,    \ compile a dummy ptr2
   HERE @ \ ( ptr1-addr ptr2-addr ptr1-val )
-  ROT ! ;
+  ROT !
+;
 
 : POSTPONE IMMEDIATE
   WORD FIND DUP IMMEDIATE? IF
@@ -193,7 +197,7 @@
     >CFA [COMPILE] LITERAL
     COMPILE ,
   THEN
-  ;
+;
 
 \ HIDDEN takes an address of a dictionary entry and toggles its hidden flag
 : HIDDEN 2 + F_HIDDEN SWAP CXOR! ;
@@ -232,12 +236,15 @@ HIDE [COMPILE]
 : WHILE IMMEDIATE
   POSTPONE 0BRANCH
   HERE @
-  0 , ;
+  0 ,
+;
+
 : REPEAT IMMEDIATE \ ( ptr2-val ptr1-addr )
   POSTPONE BRANCH
   SWAP , \ ( ptr1-addr )
   HERE @
-  SWAP ! ;
+  SWAP !
+;
 
 \ CASE                         ( push 0 during compilation to count the necessary amount of IFs )
 \ test1 OF ... ENDOF           test1 OVER = IF DROP ... ELSE
@@ -252,11 +259,11 @@ HIDE [COMPILE]
   POSTPONE =
   POSTPONE IF
   POSTPONE DROP
-  ;
+;
 
 : ENDOF IMMEDIATE
   POSTPONE ELSE
-  ;
+;
 
 : ENDCASE IMMEDIATE
   POSTPONE DROP
@@ -266,7 +273,7 @@ HIDE [COMPILE]
     POSTPONE THEN
   REPEAT
   DROP
-  ;
+;
 
 \ this is enough control structures to define parenthesis comments
 : ( IMMEDIATE          \ ( -- )
@@ -286,7 +293,8 @@ HIDE [COMPILE]
 : TUCK ( b a -- a b a ) SWAP OVER ;
 : PICK ( x(u) ... x(1) x(0) u -- x(u) ... x(1) x(0) x(u) )
   CELLS SP@ + ( x(u) ... x(1) x(0) addrof-x(u-1) )
-  4+ @ ;
+  4+ @
+;
 
 : 2DROP ( a b -- ) DROP DROP ;
 : 2DUP ( a b -- a b a b ) OVER ( a b a ) OVER ( a b a b ) ;
@@ -294,19 +302,23 @@ HIDE [COMPILE]
   >R ( a b c R: d )
   -ROT ( c a b R: d )
   R> ( c a b d )
-  -ROT ( c d a b ) ;
+  -ROT ( c d a b )
+;
 
 : 2RDROP ( R: x x retaddr -- R: retaddr ) R> RDROP RDROP >R ;
 : 2R>      ( R: x y retaddr -- x y R: retaddr )
   R> R> R> ( retaddr y x R: )
   ROT      ( y x retaddr R: )
   >R       ( y x R: retaddr )
-  SWAP     ( x y R: retaddr ) ;
+  SWAP     ( x y R: retaddr )
+;
+
 : 2>R      ( x y R: retaddr -- R: x y retaddr )
   R>       ( x y retaddr R: )
   -ROT     ( retaddr x y R: )
   SWAP     ( retaddr y x R: )
-  >R >R >R ( R: x y retaddr ) ;
+  >R >R >R ( R: x y retaddr )
+;
 
 ( The primitive word /MOD leaves both the remainder and the quotient on the stack, in that order
   (on x86, the idiv instruction calculates both anyway). Now we can define / and MOD in terms of
@@ -317,7 +329,8 @@ HIDE [COMPILE]
 : WITHIN ( c a b -- within? ) OVER - >R - R> U< ;
 
 : DEPTH ( -- n )
-  S0 SP@ - 4- 2 RSHIFT ;
+  S0 SP@ - 4- 2 RSHIFT
+;
 
 ( string literals are compiled as follows:
     LITSTRING length string-itself rest-of-code )
@@ -325,7 +338,7 @@ HIDE [COMPILE]
   R@ 4+ ( string-address )
   R@ @  ( string-address string-length )
   R> OVER + 4+ >R ( move the return address )
-  ;
+;
 
 ( a perfect example of HIDE )
 : COMPILE-STRING-CHARACTERS
@@ -380,7 +393,8 @@ HIDE COMPILE-STRING-CHARACTERS
   -ROT     ( retaddr limit counter )
   2DUP 2>R ( retaddr limit counter R: limit counter )
   <>       ( retaddr should-loop-at-all? )
-  SWAP >R ;
+  SWAP >R
+;
 
 (
   This means that LOOP should look for BRANCH LEAVE two cells before the actual pointer. This will
@@ -399,7 +413,8 @@ HIDE COMPILE-STRING-CHARACTERS
   2DUP 2>R      ( retaddr limit new-counter R: limit new-counter )
   =             ( retaddr should-stop-looping? R: limit new-counter )
   SWAP >R
-  ;
+;
+
 : HALT BEGIN AGAIN ;
 : (+LOOP)   ( diff R: limit old-counter retaddr )
   R>              ( diff retaddr )
@@ -413,28 +428,28 @@ HIDE COMPILE-STRING-CHARACTERS
   1+ SWAP 1+ SWAP ( retaddr diff limit min-limit+1 max-limit+1 )
   WITHIN          ( retaddr diff should-stop-looping? )
   NIP SWAP >R     ( should-stop-looping? R: limit new-counter retaddr )
-  ;
+;
 
 : LEAVE IMMEDIATE
   POSTPONE BRANCH
   [ LATEST @ >CFA ] LITERAL ,
-  ;
+;
 
 : UNLOOP IMMEDIATE
   POSTPONE 2RDROP
-  ;
+;
 
 : DO IMMEDIATE
   POSTPONE 2>R
   HERE @
-  ;
+;
 
 : ?DO IMMEDIATE
   POSTPONE (?DO)
   POSTPONE 0BRANCH
   ['] LEAVE ,
   HERE @
-  ;
+;
 
 : SOME-LOOP
   POSTPONE 0BRANCH
@@ -460,17 +475,17 @@ HIDE COMPILE-STRING-CHARACTERS
     2DUP <=
   UNTIL
   2DROP
-  ;
+;
 
 : LOOP IMMEDIATE
   POSTPONE (LOOP)
   SOME-LOOP
-  ;
+;
 
 : +LOOP IMMEDIATE
   POSTPONE (+LOOP)
   SOME-LOOP
-  ;
+;
 
 : I RP@ 4 + @ ;
 : J RP@ 12 + @ ;
@@ -488,7 +503,7 @@ HIDE SOME-LOOP
   ELSE
     TYPE
   THEN
-  ;
+;
 
 : PUSH-IMM32, $68 C, , ;
 : NEXT, $AD C, $FF C, $E0 C, ;
@@ -496,21 +511,16 @@ HIDE SOME-LOOP
 : CREATE
   WORD
   CREATE-BARE
-  HERE @ 8 + PUSH-IMM32, NEXT, ;
+  HERE @ 8 + PUSH-IMM32, NEXT,
+;
 : CONSTANT WORD CREATE-BARE PUSH-IMM32, NEXT, ;
 : VARIABLE CREATE 4 ALLOT ;
 HIDE PUSH-IMM32,
 HIDE NEXT,
 
 : EXECUTE [ HERE @ 12 + ] LITERAL !
-  DROP ( this DROP is overwritten by the previous line ) ;
-
-: .DIGIT
-  DUP 10 > IF
-    10 - [CHAR] A + EMIT
-  ELSE
-    [CHAR] 0 + EMIT
-  THEN ;
+  DROP ( this DROP is overwritten by the previous line )
+;
 
 : ABS DUP 0< IF NEGATE THEN ;
 
@@ -523,7 +533,8 @@ HIDE NEXT,
     HALT
   ELSE
     2DROP
-  THEN ;
+  THEN
+;
 
 : IF       IMMEDIATE S" IF"       COMPILE-ONLY POSTPONE IF ;
 : ELSE     IMMEDIATE S" ELSE"     COMPILE-ONLY POSTPONE ELSE ;
@@ -549,8 +560,19 @@ HIDE NEXT,
 : [']      IMMEDIATE S" [']"      COMPILE-ONLY POSTPONE ['] ;
 : [CHAR]   IMMEDIATE S" [CHAR]"   COMPILE-ONLY POSTPONE [CHAR] ;
 
+: .DIGIT
+  DUP 10 < IF
+    [CHAR] 0 + EMIT
+  ELSE
+    10 - [CHAR] A + EMIT
+  THEN
+;
+
 : CONCLUDE"
-  POSTPONE S" DROP ROOT FILE ;
+  POSTPONE S"
+  DROP ( we don't need the count )
+  ROOT FILE
+;
 
 ." It's working!" CR
 CONCLUDE" TEST    FRT"
