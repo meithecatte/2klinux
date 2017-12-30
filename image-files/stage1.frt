@@ -104,7 +104,7 @@
 \ address of its first assembly instruction (`call DOCOL' in case of Forth words)
 : >CFA 2 + \ ( flags-address )
   DUP C@   \ ( flags-address flags )
-  $1F AND  \ ( flags-address name-length )
+  F_LENMASK AND  \ ( flags-address name-length )
   + 1+     \ skip name-length bytes, plus one bytes for the flags byte itself
   ;
 
@@ -364,11 +364,11 @@ HIDE COMPILE-STRING-CHARACTERS
 
   DO -> 2>R loop-inside
      *      ^
-  ?DO -> ?DO-RUNTIME 0BRANCH LEAVE loop-inside
-                     *             ^
+  ?DO -> (?DO) 0BRANCH LEAVE loop-inside
+               *             ^
 )
 
-: ?DO-RUNTIME
+: (?DO)
   R>       ( limit counter retaddr )
   -ROT     ( retaddr limit counter )
   2DUP 2>R ( retaddr limit counter R: limit counter )
@@ -381,27 +381,31 @@ HIDE COMPILE-STRING-CHARACTERS
   would make no sense). * shows where LOOP will start correcting branches, and ^ shows the pointer
   passed to LOOP and the destination of the branch at the end of the loop.
 
-   LOOP ->  LOOP-RUNTIME 0BRANCH loop-beginning 2RDROP
-  +LOOP -> +LOOP-RUNTIME 0BRANCH loop-beginning 2RDROP
-                                                ^ LEAVE jumps here
+   LOOP ->  (LOOP) 0BRANCH loop-beginning 2RDROP
+  +LOOP -> (+LOOP) 0BRANCH loop-beginning 2RDROP
+                                          ^ LEAVE jumps here
 )
 
-: LOOP-RUNTIME  ( R: limit old-counter retaddr )
+: (LOOP)  ( R: limit old-counter retaddr )
   R> 2R>        ( retaddr limit old-counter )
   1+            ( retaddr limit new-counter )
   2DUP 2>R      ( retaddr limit new-counter R: limit new-counter )
   =             ( retaddr should-stop-looping? R: limit new-counter )
   SWAP >R
   ;
-: +LOOP-RUNTIME ( diff R: limit old-counter retaddr )
-  R>            ( diff retaddr )
-  SWAP          ( retaddr diff )
-  2R>           ( retaddr diff limit old-counter )
-  ROT OVER +    ( retaddr limit old-counter new-counter )
-  ROT DUP R>    ( retaddr old-counter new-counter limit R: limit )
-  -ROT DUP R>   ( retaddr limit old-counter new-counter R: limit new-counter )
-  WITHIN        ( retaddr should-stop-looping? R: limit new-counter )
-  SWAP R> ;
+: HALT BEGIN AGAIN ;
+: (+LOOP)   ( diff R: limit old-counter retaddr )
+  R>              ( diff retaddr )
+  SWAP            ( retaddr diff )
+  2R>             ( retaddr diff limit old-counter )
+  2 PICK OVER +   ( retaddr diff limit old-counter new-counter )
+  ROT DUP >R      ( retaddr diff old-counter new-counter limit R: limit )
+  -ROT DUP >R     ( retaddr diff limit old-counter new-counter R: limit new-counter )
+  3 PICK          ( retaddr diff limit old-counter new-counter diff )
+  0< IF SWAP THEN ( retaddr diff limit min-limit max-limit )
+  1+ SWAP 1+ SWAP ( retaddr diff limit min-limit+1 max-limit+1 )
+  WITHIN          ( retaddr diff should-stop-looping? )
+  NIP SWAP >R     ( should-stop-looping? R: limit new-counter retaddr )
   ;
 
 : LEAVE IMMEDIATE
@@ -419,7 +423,7 @@ HIDE COMPILE-STRING-CHARACTERS
   ;
 
 : ?DO IMMEDIATE
-  POSTPONE ?DO-RUNTIME
+  POSTPONE (?DO)
   POSTPONE 0BRANCH
   ['] LEAVE ,
   HERE @
@@ -446,27 +450,26 @@ HIDE COMPILE-STRING-CHARACTERS
       SWAP 4+ SWAP
     ENDCASE
 
-    2DUP >
+    2DUP <=
   UNTIL
   2DROP
   ;
 
 : LOOP IMMEDIATE
-  POSTPONE LOOP-RUNTIME
+  POSTPONE (LOOP)
   SOME-LOOP
   ;
 
 : +LOOP IMMEDIATE
-  POSTPONE +LOOP-RUNTIME
+  POSTPONE (+LOOP)
   SOME-LOOP
   ;
 
 : I RP@ 4 + @ ;
 : J RP@ 12 + @ ;
 
-HIDE DO-RUNTIME
-HIDE LOOP-RUNTIME
-HIDE +LOOP-RUNTIME
+HIDE (LOOP)
+HIDE (+LOOP)
 HIDE SOME-LOOP
 
 : TYPE 0 ?DO DUP C@ EMIT 1+ LOOP DROP ;
@@ -507,7 +510,6 @@ HIDE NEXT,
 : SPACE BL EMIT ;
 : SPACES 0 ?DO SPACE LOOP ;
 
-: HALT BEGIN AGAIN ;
 : COMPILE-ONLY
   STATE @ INVERT IF
     TYPE ."  is compile only."
