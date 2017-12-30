@@ -430,7 +430,6 @@ HIDE COMPILE-STRING-CHARACTERS
   SWAP >R
 ;
 
-: HALT BEGIN AGAIN ;
 : (+LOOP)   ( diff R: limit old-counter retaddr )
   R>              ( diff retaddr )
   SWAP            ( retaddr diff )
@@ -545,10 +544,17 @@ HIDE NEXT,
   0 ?DO SPACE LOOP
 ;
 
+: ABORT
+  CR
+  ." ABORTED"
+  CR
+  BEGIN AGAIN
+;
+
 : COMPILE-ONLY
   STATE @ INVERT IF
     TYPE ."  is compile only."
-    HALT
+    ABORT
   ELSE
     2DROP
   THEN
@@ -628,7 +634,8 @@ HIDE NEXT,
   THEN
 ;
 
-: . 0 .R SPACE ;
+: .X 0 .R ;
+: . .X SPACE ;
 
 : .S
   [CHAR] < EMIT
@@ -639,9 +646,8 @@ HIDE NEXT,
     S0 I 1+ CELLS - @
     DUP U.
     DUP 0< IF
-      ABS
-      ." (-"
-      U.X
+      ." ("
+      .X
       ." ) "
     ELSE
       DROP
@@ -650,23 +656,13 @@ HIDE NEXT,
   CR
 ;
 
-1234 U. CR
-$DEADBEEF H. CR
-1234 7 U.R CR
-$BCD 4 H.R CR
-
-1234 0 .R CR
--123 0 .R CR
-1234 5 .R CR
--123 5 .R CR
-
-1 2 3 4 2OVER .S
-
 : CONCLUDE"
   POSTPONE S"
   DROP ( we don't need the count )
   ROOT FILE
 ;
 
-." It's working!" CR
+." 2K Linux" CR
+
+." Loading testsuite" CR
 CONCLUDE" TEST    FRT"
