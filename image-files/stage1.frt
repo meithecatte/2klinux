@@ -203,6 +203,8 @@
 HIDE COMPILE
 HIDE [COMPILE]
 
+: ?DUP DUP IF DUP THEN ;
+
 \ before BEGIN inside AGAIN after
 \ compiles to
 
