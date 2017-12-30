@@ -568,6 +568,50 @@ HIDE NEXT,
   THEN
 ;
 
+: B.R ( u width base -- )
+  ROT OVER U/MOD ( width base rem quot )
+  ?DUP IF
+    ( width base rem quot )
+    SWAP >R ( width base quot R: rem )
+    ROT ( base quot width R: rem )
+    DUP 0<> IF 1- THEN
+    ROT ( quot width base R: rem )
+    RECURSE
+    R> ( rem )
+  ELSE
+    NIP ( width rem )
+    SWAP ( rem width )
+    DUP 0> IF
+      1- SPACES
+    ELSE
+      DROP
+    THEN ( rem )
+  THEN
+  .DIGIT
+;
+
+: B. 0 SWAP B.R ;
+: U. 10 B. ;
+: H. 16 B. ;
+: U.R 10 B.R ;
+: H.R 16 B.R ;
+
+: .S
+  [CHAR] < EMIT
+  DEPTH U.
+  [CHAR] > EMIT
+  DEPTH 0 ?DO
+    S0 I 1+ CELLS - @ SPACE U.
+  LOOP
+  CR
+;
+
+1234 U. CR
+$DEADBEEF H. CR
+1234 7 U.R CR
+$ABCD 3 H.R CR
+$BCD 4 H.R CR
+
 : CONCLUDE"
   POSTPONE S"
   DROP ( we don't need the count )
