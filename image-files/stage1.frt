@@ -327,6 +327,14 @@ HIDE [COMPILE]
 : MOD /MOD DROP ;
 
 : WITHIN ( c a b -- within? ) OVER - >R - R> U< ;
+: MINMAX ( a b -- min max )
+  2DUP > IF
+    SWAP
+  THEN
+;
+
+: MIN MINMAX DROP ;
+: MAX MINMAX NIP ;
 
 : DEPTH ( -- n )
   S0 SP@ - 4- 2 RSHIFT
