@@ -296,15 +296,6 @@ HIDE [COMPILE]
   4+ @
 ;
 
-: 2DROP ( a b -- ) DROP DROP ;
-: 2DUP ( a b -- a b a b ) OVER ( a b a ) OVER ( a b a b ) ;
-: 2SWAP ( a b c d -- c d a b )
-  >R ( a b c R: d )
-  -ROT ( c a b R: d )
-  R> ( c a b d )
-  -ROT ( c d a b )
-;
-
 : 2RDROP ( R: x x retaddr -- R: retaddr ) R> RDROP RDROP >R ;
 : 2R>      ( R: x y retaddr -- x y R: retaddr )
   R> R> R> ( retaddr y x R: )
@@ -318,6 +309,22 @@ HIDE [COMPILE]
   -ROT     ( retaddr x y R: )
   SWAP     ( retaddr y x R: )
   >R >R >R ( R: x y retaddr )
+;
+
+: 2DROP ( a b -- ) DROP DROP ;
+: 2DUP ( a b -- a b a b ) OVER ( a b a ) OVER ( a b a b ) ;
+: 2SWAP ( a b c d -- c d a b )
+  >R ( a b c R: d )
+  -ROT ( c a b R: d )
+  R> ( c a b d )
+  -ROT ( c d a b )
+;
+
+: 2OVER ( a b c d -- a b c d a b )
+  2>R
+  2DUP
+  2R>
+  2SWAP
 ;
 
 ( The primitive word /MOD leaves both the remainder and the quotient on the stack, in that order
@@ -653,8 +660,7 @@ $BCD 4 H.R CR
 1234 5 .R CR
 -123 5 .R CR
 
-.S
-123 -456 789 .S
+1 2 3 4 2OVER .S
 
 : CONCLUDE"
   POSTPONE S"
