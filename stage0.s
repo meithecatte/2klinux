@@ -636,8 +636,20 @@ DIVMOD:
 	push eax
 	NEXT
 
-link_EQ:
+link_UDIVMOD:
 	dw $-link_DIVMOD
+	db 5, 'U/MOD'
+UDIVMOD:
+	pop ecx
+	pop eax
+	xor edx, edx
+	div ecx
+	push edx
+	push eax
+	NEXT
+
+link_EQ:
+	dw $-link_UDIVMOD
 	db 1, '='
 EQ:
 	pop ecx
@@ -1031,8 +1043,9 @@ doNUMBER:
 	xchg eax, esi
 	push eax
 	mov word[.negate_patch], 0x9066 ; two byte nop - assume we don't need to negate
+	xor eax, eax
 	xor ebx, ebx
-	mul ebx ; EAX, EBX and EDX are now 0
+	xor edx, edx
 	mov dl, 10
 	mov bl, [esi]
 	cmp bl, '$'
@@ -1079,25 +1092,17 @@ EMIT:
 	dw PrintChar
 	NEXT
 
-; ( -- )
-; LOAD the first cluster of the root directory
-link_ROOT:
-	dw $-link_EMIT
-	db 4, 'ROOT'
-ROOT:
-	mov eax, dword[BPBRootCluster]
-	jmp short LOAD
-
 ; ( cluster -- )
 ; A thin wrapper around ReadCluster
 link_LOAD:
-	dw $-link_ROOT
+	dw $-link_EMIT
 	db 4, 'LOAD'
 LOAD:
 	pushad
 	call CallRM
 	dw ReadCluster
 	popad
+..@NEXT:
 	NEXT
 
 ; ( name-pointer -- )
@@ -1113,7 +1118,7 @@ FILE:
 	dw FindFile
 	popad
 	xchg edi, eax
-	NEXT
+	jmp short ..@NEXT
 
 link_CREATE:
 	dw $-link_FILE

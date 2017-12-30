@@ -10,6 +10,8 @@
 : F_HIDDEN  $20 ;
 : F_LENMASK $1F ;
 
+: ROOT $882C @ LOAD ;
+
 : NL 10 ;
 : BL 32 ;
 : CR NL EMIT ;
@@ -50,6 +52,9 @@
 
 \ Furthermore, the flags describing the flags field are also defined. Their meaning is the same as
 \ of the corresponding constants in the assembly file.
+
+\ ROOT is a word that LOADs the first cluster of the root directory, and since it's dependant on
+\ the address of BPBRootCluster, it's also defined at the beginning of this file.
 
 \ Below, two character constants are defined - BL (for BLank) returns the character value of the
 \ space character, and NL (for New Line) - the character value of the newline character. These can
