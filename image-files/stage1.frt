@@ -629,7 +629,16 @@ HIDE NEXT,
   [CHAR] > EMIT
   SPACE
   DEPTH 0 ?DO
-    S0 I 1+ CELLS - @ U.
+    S0 I 1+ CELLS - @
+    DUP U.
+    DUP 0< IF
+      ABS
+      ." (-"
+      U.X
+      ." ) "
+    ELSE
+      DROP
+    THEN
   LOOP
   CR
 ;
