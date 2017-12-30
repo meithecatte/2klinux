@@ -585,34 +585,51 @@ HIDE NEXT,
     ( width base rem quot )
     SWAP >R ( width base quot R: rem )
     ROT ( base quot width R: rem )
-    DUP 0<> IF 1- THEN
+    1- 0 MAX
     ROT ( quot width base R: rem )
     RECURSE
     R> ( rem )
   ELSE
     NIP ( width rem )
     SWAP ( rem width )
-    DUP 0> IF
-      1- SPACES
-    ELSE
-      DROP
-    THEN ( rem )
+    1- SPACES ( rem )
   THEN
   .DIGIT
 ;
 
-: B. 0 SWAP B.R ;
-: U. 10 B. ;
-: H. 16 B. ;
-: U.R 10 B.R ;
-: H.R 16 B.R ;
+: U.R 10 B.R ; : U.X 0 U.R ; : U. U.X SPACE ;
+: H.R 16 B.R ; : H.X 0 H.R ; : H. H.X SPACE ;
+
+: .R ( n width -- )
+  SWAP 10 /MOD ( width rem quot )
+  ?DUP IF
+    ROT
+    1- 0 MAX
+    RECURSE
+    ABS .DIGIT
+  ELSE
+    ( width rem )
+    DUP 0< IF 2 ELSE 1 THEN
+    ( width rem actual-width )
+    ROT SWAP - ( rem width-diff )
+    SPACES
+    DUP 0< IF
+      [CHAR] - EMIT
+    THEN
+    ABS
+    .DIGIT
+  THEN
+;
+
+: . 0 .R SPACE ;
 
 : .S
   [CHAR] < EMIT
-  DEPTH U.
+  DEPTH U.X
   [CHAR] > EMIT
+  SPACE
   DEPTH 0 ?DO
-    S0 I 1+ CELLS - @ SPACE U.
+    S0 I 1+ CELLS - @ U.
   LOOP
   CR
 ;
@@ -620,8 +637,15 @@ HIDE NEXT,
 1234 U. CR
 $DEADBEEF H. CR
 1234 7 U.R CR
-$ABCD 3 H.R CR
 $BCD 4 H.R CR
+
+1234 0 .R CR
+-123 0 .R CR
+1234 5 .R CR
+-123 5 .R CR
+
+.S
+123 -456 789 .S
 
 : CONCLUDE"
   POSTPONE S"
