@@ -1020,7 +1020,6 @@ doWORD:
 	mov byte[eax+ecx], 0
 	ret
 
-
 link_NUMBER:
 	dw $-link_WORD
 	db 6, 'NUMBER'
@@ -1044,8 +1043,8 @@ doNUMBER:
 	push eax
 	mov word[.negate_patch], 0x9066 ; two byte nop - assume we don't need to negate
 	xor eax, eax
+	cdq
 	xor ebx, ebx
-	xor edx, edx
 	mov dl, 10
 	mov bl, [esi]
 	cmp bl, '$'
@@ -1098,6 +1097,7 @@ link_LOAD:
 	dw $-link_EMIT
 	db 4, 'LOAD'
 LOAD:
+	pop eax
 	pushad
 	call CallRM
 	dw ReadCluster
