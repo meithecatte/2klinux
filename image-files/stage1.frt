@@ -35,8 +35,9 @@
 
 : \ IMMEDIATE [ HERE @ ] KEY NL = 0BRANCH [ , ] ;
 
-\ Forth is a very extensible language. In fact, you can define your own comment syntax in Forth
-\ itself. To do this, I needed a few words that are not defined by stage0.asm - at the very
+\ Forth is a very extensible language. For example, you can even define your own comment syntax at
+\ runtime. Moreover, because of the space restriction of the first bootstrap stage of 2K Linux, it
+\ is inevitable. To do this, I needed a few words that are not defined by stage0.asm - at the very
 \ beginning of this file, a few constants are defined that represent important addresses:
 \ R0 - the initial value of the return stack pointer
 \ S0 - the initial value of the data stack pointer
@@ -51,38 +52,48 @@
 \ Furthermore, the flags describing the flags field are also defined. Their meaning is the same as
 \ of the corresponding constants in the assembly file.
 
-\ ROOT is a word that LOADs the first cluster of the root directory, and since it's dependant on
-\ the address of BPBRootCluster, it's also defined at the beginning of this file.
+\ ROOT is a word that LOADs the first cluster of the root directory, and because it depends on the
+\ the address of BPBRootCluster, it's also defined here.
 
-\ Below, two character constants are defined - BL (for BLank) returns the character value of the
-\ space character, and NL (for New Line) - the character value of the newline character. These can
-\ be used with EMIT to print characters on screen, as demonstated by CR.
+\ Below, two character constants are defined.  BL (BLank) will return the ASCII value of the space
+\ character, and NL (for New Line) - the newline character.  These can be used with EMIT to output
+\ characters on screen, as demonstated by CR.
 
-\ In Forth, FALSE is represented by a cell with all bits unset, and TRUE is represented by a cell
-\ with all bits set, which corresponds with the two's complement representation of -1.
+\ In Forth, FALSE is represented by a cell with all bits unset, and TRUE - by a cell with all bits
+\ set, which corresponds with the two's complement representation of -1. This representation makes
+\ bitwise and logical operations equivalent, which avoids cluttering up the dictionary.  While any
+\ non-zero cell would work as TRUE with the control flow words, these two values are the canonical
+\ representations, which becomes important when dealing with logical operations.
 
 \ OR!, XOR! and AND! all combine the corresponding bitwise operation with ! in a similar manner to
-\ +! and -!: VAR @ $12 XOR VAR ! is equivalent to $12 VAR XOR!
+\ +! or -!.  For example,  `VAR @ $12 XOR VAR !` is equivalent to `$12 VAR XOR!`.  COR!, CXOR! and
+\ CAND! work in the same manner, but on single bytes instead of 32-bit cells.
 
-\ COR!, CXOR! and CAND! work in the same manner, but on single bytes instead of 32-bit cells.
+\ Finally, >FLAGS is a word that takes a pointer to the link field of a dictionary entry and turns
+\ it into a pointer to the flags field.
 
-\ IMMEDIATE marks the last word defined as immediate. If a word in the dictionary is flagged as
-\ immediate then the interpreter runs it immediately *even if it's in compile mode*. One such
-\ example is the ; word used to end definitions. We want it to run now, not when the new word is
-\ used. LATEST @ gives the address of the last word defined, 2 + transforms it into the address of
-\ the flags field, which is then ORed with F_IMMED to set the immediate flag.
+\ All of this makes it possible to define IMMEDIATE. Unsurprisingly, IMMEDIATE is used to mark the
+\ word defined last as immediate. This flag means that INTERPRET runs the marked word immediately,
+\ _even if it's in compile mode_. One example is the ; word used to end definitions. We want it to
+\ run now, not when the new word is used.
 
-\ IMMEDIATE is then marked immediate with itself to make it possible to say : NEW-WORD IMMEDIATE
-\ which is more idiomatic to Forth. [ and ] are words that can be used to temporarily enter the
-\ interpretation mode while defining a word, which is mostly useful to calculate something once
-\ and make it a number literal.
+\ The way IMMEDIATE is implemented is surprisingly simple.  `LATEST @ >FLAGS` gives the address of
+\ the relevant flags field, which is then ORed with F_IMMED to set the immediate flag.
+
+\ IMMEDIATE is itself marked that way to make it possible to say `: NEW-WORD IMMEDIATE` instead of
+\ `: NEW-WORD ... ; IMMEDIATE`, because, while definitely a matter of taste, the former is cleaner
+\ according to many users of Forth.
+
+\ [ and ] can be used to temporarily enter the interpretation mode while defining a word, which is
+\ mostly useful to calculate something once and make it a number literal.
 
 \ This functionality is used while defining \, since the loop constructs are not yet available. If
-\ they were, this word would be defined as : \ IMMEDIATE BEGIN KEY NL = UNTIL ; which is arguably
-\ easier to understand - skip characters until you encounter a newline. \ is marked immediate to
-\ make comments work correctly in compile mode. The way BEGIN and UNTIL are replaced in that
-\ definition will become clear when we define control flow structures. However, some simpler words
-\ will come first.
+\ they were, this word would be defined as `: \ IMMEDIATE BEGIN KEY NL = UNTIL ;`, which is surely
+\ easier to understand - skip characters until you encounter a newline.
+
+\ This word is marked as immediate to make comments work correctly in compile mode.  The way BEGIN
+\ and UNTIL are replaced in that definition should become clear when we define control flow words,
+\ but some simpler words will come first.
 
 \ Because of space restriction of stage0.asm, only some comparsions are primitive. The rest can be
 \ done by inverting the result of a different comparison.
