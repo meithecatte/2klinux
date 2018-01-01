@@ -27,10 +27,8 @@
 : CXOR! DUP C@ ROT XOR SWAP C! ;
 : CAND! DUP C@ ROT AND SWAP C! ;
 
-: IMMEDIATE
-  LATEST @
-  2 + F_IMMED SWAP COR!
-; IMMEDIATE
+: >FLAGS 2 + ;
+: IMMEDIATE F_IMMED LATEST @ >FLAGS COR! ; IMMEDIATE
 
 : [ IMMEDIATE FALSE STATE ! ;
 : ] TRUE STATE ! ;
@@ -103,14 +101,14 @@
 : NEGATE INVERT 1+ ;
 
 \ Used for checking whether a dictionary entry is marked immediate
-: IMMEDIATE? 2 + C@ F_IMMED AND 0<> ;
+: IMMEDIATE? >FLAGS C@ F_IMMED AND 0<> ;
 
 \ >CFA takes an address of a word in the dictionary and returns its execution token, i. e. the
 \ address of its first assembly instruction (`call DOCOL' in case of Forth words)
-: >CFA 2 + \ ( flags-address )
-  DUP C@   \ ( flags-address flags )
+: >CFA >FLAGS    \ ( flags-address )
+  DUP C@         \ ( flags-address flags )
   F_LENMASK AND  \ ( flags-address name-length )
-  + 1+     \ skip name-length bytes, plus one bytes for the flags byte itself
+  + 1+           \ skip name-length bytes, plus one more for the flags byte itself
 ;
 
 \ ' SOME-WORD will push the execution token of SOME-WORD
@@ -199,8 +197,8 @@
 ;
 
 \ HIDDEN takes an address of a dictionary entry and toggles its hidden flag
-: HIDDEN 2 + F_HIDDEN SWAP CXOR! ;
-: HIDDEN? 2 + C@ F_HIDDEN AND 0<> ;
+: HIDDEN >FLAGS F_HIDDEN SWAP CXOR! ;
+: HIDDEN? >FLAGS C@ F_HIDDEN AND 0<> ;
 : HIDE WORD FIND HIDDEN ;
 
 HIDE COMPILE
