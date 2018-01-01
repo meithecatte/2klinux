@@ -1,4 +1,4 @@
-# 2Klinux
+# 2K Linux
 
 A Linux distribution that bootstraps from a 2 kilobyte binary (and a pile of source code), involving a filesystem driver
 that fits in 256 bytes and a C compiler written in the awesome language known as Forth.
@@ -29,3 +29,11 @@ Run the `build.sh` script to generate a disk image called `gen/2klinux.img`. You
 - the newest versions of GCC, binutils and glibc are compiled using GCC 4.7
 
 The rest is pretty hard to plan out so far into the future, but the hardest part seems to be above. The probability of any changes is directly proportional to the position on this list.
+
+## The Forth system
+
+The Forth implemented in 2K Linux is not fully ANS compliant. This section aims to list all places where the implementation diverges from this standard.
+
+ - This Forth is not interactive. All input is read from a file on the installation media.
+ - Input is not read line by line, but in 512-byte sectors. The input buffer might be refilled in the middle of reading a word.
+ - BASE does not exist. Hexadecimal input is done using the $ prefix.
