@@ -666,6 +666,17 @@ HIDE NEXT,
   CR
 ;
 
+: H.S
+  ." <$"
+  DEPTH H.X
+  ." > "
+  DEPTH 0 ?DO
+    ." $"
+    S0 I 1+ CELLS - @ H.
+  LOOP
+  CR
+;
+
 : CONCLUDE"
   POSTPONE S"
   DROP ( we don't need the count )
