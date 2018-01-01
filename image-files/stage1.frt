@@ -645,21 +645,23 @@ HIDE NEXT,
 : .X 0 .R ;
 : . .X SPACE ;
 
+: ?.
+  DUP U.
+  DUP 0< IF
+    ." ("
+    .X
+    ." ) "
+  ELSE
+    DROP
+  THEN
+;
+
 : .S
-  [CHAR] < EMIT
+  ." <"
   DEPTH U.X
-  [CHAR] > EMIT
-  SPACE
+  ." > "
   DEPTH 0 ?DO
-    S0 I 1+ CELLS - @
-    DUP U.
-    DUP 0< IF
-      ." ("
-      .X
-      ." ) "
-    ELSE
-      DROP
-    THEN
+    S0 I 1+ CELLS - @ ?.
   LOOP
   CR
 ;
