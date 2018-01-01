@@ -1,6 +1,6 @@
 : R0      $1500 ;
 : S0      $7C00 ;
-: CLUSTER $7C10 ;
+: BLK     $7C10 ;
 : >IN     $7C14 ;
 : LATEST  $7C18 ;
 : HERE    $7C1C ;
@@ -42,11 +42,10 @@
 \ beginning of this file, a few constants are defined that represent important addresses:
 \ R0 - the initial value of the return stack pointer
 \ S0 - the initial value of the data stack pointer
-\ CLUSTER - this variable holds the cluster number of the currently loaded cluster
-\ >IN - holds the offset from the beginning of the cluster buffer of the next character KEY will
-\       return. These two variables can be used to save and restore the current file position,
-\       and therefore read multiple files at once, which is a necessary capability for
-\       the C preprocessor.
+\ BLK - holds the cluster number of the currently loaded cluster
+\ >IN - holds the offset in the cluster buffer of the first unparsed character. Together with BLK,
+\       it can be used to save and restore the current file position, for example in order to read
+\       multiple files at once, which is necessary for implementing the C preprocessor.
 \ LATEST - holds the address of the last word defined
 \ HERE - holds the address of the first free byte of memory
 \ STATE - FALSE if interpreting words, TRUE when compiling

@@ -20,9 +20,9 @@
 %define dDiskPacketDestSegment 6
 %define dDiskPacketLBA         8
 ;  7C10 -  7C13 -> The currently loaded cluster
-%define dCLUSTER 16
+%define dBLK 16
 ;  7C14 -  7C23 -> Forth variables, all are 4 bytes long
-%define dOFFSET 20 ; The address of the next byte KEY will read, relative to FileBuffer
+%define dTOIN   20 ; The address of the next byte KEY will read, relative to FileBuffer
 %define dLATEST 24 ; The LFA of the last Forth word defined.
 %define dHERE   28 ; The address of the first free byte of Forth memory.
 %define dSTATE  32 ; 1 if compiling words, 0 if interpreting.
@@ -132,7 +132,7 @@ FindFileRoot:
 ;  DI = pointer to filename
 FindFile:
 	xor ecx, ecx
-	mov [bp+dOFFSET], ecx
+	mov [bp+dTOIN], ecx
 	mov cl, 16
 	mov si, FileBuffer
 .loop:
@@ -178,7 +178,7 @@ NotFoundError:
 	jmp short Error
 
 ReadNextCluster:
-	mov eax, dword[bp+dCLUSTER]
+	mov eax, dword[bp+dBLK]
 	shr eax, 7
 	db 0x66, 0x05 ; add eax, imm32
 ..@FirstFATSectorPatch:
@@ -186,7 +186,7 @@ ReadNextCluster:
 
 	mov di, FATBuffer
 	call DiskRead
-	movzx bx, byte[bp+dCLUSTER]
+	movzx bx, byte[bp+dBLK]
 	shl bl, 1
 	shl bx, 1
 	mov eax, dword[di+bx]
@@ -195,7 +195,7 @@ ReadNextCluster:
 	jc short ..@Return
 
 ReadCluster:
-	mov dword[bp+dCLUSTER], eax
+	mov dword[bp+dBLK], eax
 	db 0x66, 0x05 ; add eax, imm32
 ..@ClusterZeroLBAPatch:
 	dd 0
@@ -979,7 +979,7 @@ KEY:
 	NEXT
 
 doKEY:
-	mov ebx, [ebp+dOFFSET]
+	mov ebx, [ebp+dTOIN]
 	cmp bx, 0x200
 	jb .nonextcluster
 
@@ -993,7 +993,7 @@ doKEY:
 	xor eax, eax
 	mov al, [FileBuffer+ebx]
 	inc ebx
-	mov [ebp+dOFFSET], ebx
+	mov [ebp+dTOIN], ebx
 	ret
 
 link_WORD:
