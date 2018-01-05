@@ -114,8 +114,8 @@
 \ Used for checking whether a dictionary entry is marked immediate
 : IMMEDIATE? >FLAGS C@ F_IMMED AND 0<> ;
 
-\ >CFA takes an address of a word in the dictionary and returns its execution token, i. e. the
-\ address of its first assembly instruction (`call DOCOL' in case of Forth words)
+\ >CFA takes an address of a dictionary entry and returns its execution token, i. e. the address
+\ of its first assembly instruction (`call DOCOL' in case of Forth words)
 : >CFA >FLAGS    \ ( flags-address )
   DUP C@         \ ( flags-address flags )
   F_LENMASK AND  \ ( flags-address name-length )
@@ -126,8 +126,10 @@
 : ' WORD FIND >CFA ;
 
 \ LITERAL is a compile-time word that is used to define computed number literals. Consider
+\
 \ : SOME-WORD [ 2 2 + ] LITERAL ;
-\ This is equivalent to : SOME-WORD 4 ; but sometimes you want to show where a value comes from
+\
+\ This is equivalent to `: SOME-WORD 4 ;` but sometimes you want to show where a value comes from
 \ without recalculating it every time the word is executed. It is also useful when defining compile
 \ time words, when combined with POSTPONE or [COMPILE]
 
