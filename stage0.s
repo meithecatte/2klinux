@@ -1016,6 +1016,7 @@ doWORD:
 	call doKEY
 	cmp al, ' '
 	ja .loop
+	dec dword[ebp+dTOIN]
 	mov eax, WORDBuffer
 	mov byte[eax+ecx], 0
 	ret
@@ -1029,9 +1030,9 @@ NUMBER:
 	call doNUMBER
 	push eax
 	push ecx
-	NEXT
+	jmp short ..@NEXT
 
-; Parses a number in the base specified by BASE
+; Parses a number
 ; Input:
 ;  ECX = string length
 ;  EAX = string buffer
@@ -1042,9 +1043,8 @@ doNUMBER:
 	xchg eax, esi
 	push eax
 	mov word[.negate_patch], 0x9066 ; two byte nop - assume we don't need to negate
-	xor eax, eax
-	cdq
 	xor ebx, ebx
+	mul ebx      ; zeroes EAX, EBX and EDX
 	mov dl, 10
 	mov bl, [esi]
 	cmp bl, '$'
@@ -1089,7 +1089,7 @@ EMIT:
 	pop eax
 	call CallRM
 	dw PrintChar
-	NEXT
+	jmp short ..@NEXT
 
 ; ( cluster -- )
 ; A thin wrapper around ReadCluster
