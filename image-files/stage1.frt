@@ -511,8 +511,10 @@ HIDE COMPILE-STRING-CHARACTERS
   SOME-LOOP
 ;
 
-: I RP@ 4 + @ ;
-: J RP@ 12 + @ ;
+: I     RP@  4 + @ ;
+: I-MAX RP@  8 + @ ;
+: J     RP@ 12 + @ ;
+: J-MAX RP@ 16 + @ ;
 
 HIDE (LOOP)
 HIDE (+LOOP)
