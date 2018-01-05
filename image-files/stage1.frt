@@ -691,7 +691,6 @@ HIDE NEXT,
   SP@ OVER 1+ CELLS + @ SWAP
   0 SWAP ?DO
     SP@ DUP I CELLS + @ SWAP I 1+ CELLS + !
-    .S
   -1 +LOOP
   DROP
 ;
