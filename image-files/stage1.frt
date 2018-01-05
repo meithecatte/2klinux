@@ -687,7 +687,15 @@ HIDE NEXT,
   ROOT FILE
 ;
 
-." 2K Linux" CR
+: ROLL
+  SP@ OVER 1+ CELLS + @ SWAP
+  0 SWAP ?DO
+    SP@ DUP I CELLS + @ SWAP I 1+ CELLS + !
+    .S
+  -1 +LOOP
+  DROP
+;
 
+." 2K Linux" CR
 ." Loading testsuite" CR
 CONCLUDE" TEST    FRT"
