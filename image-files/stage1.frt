@@ -703,10 +703,30 @@ HIDE NEXT,
   2DROP
 ;
 
+CREATE FILENAME-BUFFER 11 ALLOT
+
+: FILE
+  FILENAME-BUFFER 11 BL FILL
+  FILENAME-BUFFER SWAP ( source destination count )
+  0 ?DO
+    SWAP DUP C@ ( destination source char )
+    DUP [CHAR] . = IF
+      DROP NIP ( source )
+      FILENAME-BUFFER 7 + SWAP ( destination source )
+    ELSE
+      >UPPER 2 PICK C! ( destination source )
+    THEN
+    1+ SWAP 1+
+  LOOP
+  FILENAME-BUFFER FILE
+;
+
+HIDE FILENAME-BUFFER
+
 : CONCLUDE"
   POSTPONE S"
-  DROP ( we don't need the count )
-  ROOT FILE
+  ROOT
+  FILE
 ;
 
 : ROLL
@@ -718,5 +738,6 @@ HIDE NEXT,
 ;
 
 ." 2K Linux" CR
+
 ." Loading testsuite" CR
-CONCLUDE" TEST    FRT"
+CONCLUDE" TEST.FRT"
