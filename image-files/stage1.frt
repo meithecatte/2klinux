@@ -683,6 +683,26 @@ HIDE NEXT,
   CR
 ;
 
+: >UPPER ( char -- char )
+  DUP [CHAR] a [CHAR] z 1+ WITHIN IF
+    [ CHAR A CHAR a - ] LITERAL +
+  THEN
+;
+
+: >LOWER ( char -- char )
+  DUP [CHAR] A [CHAR] Z 1+ WITHIN IF
+    [ CHAR a CHAR A - ] LITERAL +
+  THEN
+;
+
+: FILL ( c-addr u char -- )
+  -ROT 0 ?DO
+    ( char c-addr )
+    2DUP C! 1+
+  LOOP
+  2DROP
+;
+
 : CONCLUDE"
   POSTPONE S"
   DROP ( we don't need the count )
