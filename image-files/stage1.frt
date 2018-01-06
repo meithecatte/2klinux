@@ -368,12 +368,14 @@ HIDE [COMPILE]
 ( a perfect example of HIDE )
 : COMPILE-STRING-CHARACTERS
   ( a helper function used to compile characters until a " )
+  KEY DROP ( skip one character as the word separator )
   BEGIN
     KEY DUP [CHAR] " <>
   WHILE
     C,
   REPEAT
-  DROP ;
+  DROP
+;
 
 : S" IMMEDIATE
   ( S" behaves correctly even in immediate mode )
