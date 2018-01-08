@@ -705,25 +705,42 @@ HIDE NEXT,
   2DROP
 ;
 
-CREATE FILENAME-BUFFER 11 ALLOT
 
-: FILE
-  FILENAME-BUFFER 11 BL FILL
-  FILENAME-BUFFER SWAP ( source destination count )
-  0 ?DO
-    SWAP DUP C@ ( destination source char )
-    DUP [CHAR] . = IF
-      DROP NIP ( source )
-      FILENAME-BUFFER 7 + SWAP ( destination source )
-    ELSE
-      >UPPER 2 PICK C! ( destination source )
-    THEN
-    1+ SWAP 1+
-  LOOP
-  FILENAME-BUFFER FILE
+( redefine FILE to expand the dot in the filename to the appropriate amount of spaces and convert
+  the filename to uppercase )
+
+CREATE BUFFER 12 ALLOT
+0 BUFFER 11 + !
+( the last byte is never written to, but FindFile will slightly break when reporting a file not
+  found error if the filename is not immediately followed by a null byte )
+
+: LENGTH-CHECK ( curr-destination curr-maximum -- curr-destination | ABORT )
+  BUFFER + OVER < IF
+    ." Error: filename too long" ABORT
+  THEN
 ;
 
-HIDE FILENAME-BUFFER
+: FILE ( filename filename-length -- )
+  ." Reading "
+  2DUP TYPE CR
+  BUFFER TUCK 11 BL FILL                   ( source destination count )
+  0 ?DO                                    ( source destination )
+    OVER I + C@                            ( source destination char )
+    DUP [CHAR] . = IF                      ( source destination char )
+      DROP                                 ( source destination )
+      8 LENGTH-CHECK                       ( source destination )
+      DROP [ BUFFER 8 + ] LITERAL          ( source destination )
+    ELSE                                   ( source destination char )
+      >UPPER OVER C! 1+                    ( source destination )
+    THEN                                   ( source destination )
+    11 LENGTH-CHECK                        ( source destination )
+  LOOP                                     ( source destination )
+  2DROP
+  BUFFER FILE ( old implementation, not recursion )
+;
+
+HIDE BUFFER
+HIDE LENGTH-CHECK
 
 : CONCLUDE"
   POSTPONE S"
