@@ -343,6 +343,8 @@ HIDE [COMPILE]
 : / /MOD NIP ;
 : MOD /MOD DROP ;
 
+: C, ( u -- ) HERE @ TUCK ! 1+ HERE ! ;
+
 : WITHIN ( c a b -- within? ) OVER - >R - R> U< ;
 : MINMAX ( a b -- min max )
   2DUP > IF

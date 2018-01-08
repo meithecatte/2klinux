@@ -865,18 +865,8 @@ CFETCH:
 	push eax
 	NEXT
 
-link_CCOMMA:
-	dw $-link_CFETCH
-	db 2, 'C,'
-CCOMMA:
-	mov edx, [ebp+dHERE]
-	pop eax
-	mov [edx], al
-	inc dword[ebp+dHERE]
-	NEXT
-
 link_CMOVE:
-	dw $-link_CCOMMA
+	dw $-link_CFETCH
 	db 5, 'CMOVE'
 _CMOVE:
 	push esi
