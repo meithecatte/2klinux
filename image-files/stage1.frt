@@ -515,16 +515,16 @@ HIDE COMPILE-STRING-CHARACTERS
   SOME-LOOP
 ;
 
-: I     RP@  4 + @ ;
-: I-MAX RP@  8 + @ ;
-: J     RP@ 12 + @ ;
-: J-MAX RP@ 16 + @ ;
+: I     ( -- n ) RP@  4 + @ ;
+: I-MAX ( -- n ) RP@  8 + @ ;
+: J     ( -- n ) RP@ 12 + @ ;
+: J-MAX ( -- n ) RP@ 16 + @ ;
 
 HIDE (LOOP)
 HIDE (+LOOP)
 HIDE SOME-LOOP
 
-: TYPE 0 ?DO DUP C@ EMIT 1+ LOOP DROP ;
+: TYPE ( c-addr u -- ) 0 MAX 0 ?DO DUP C@ EMIT 1+ LOOP DROP ;
 
 : ." IMMEDIATE
   POSTPONE S"
@@ -740,6 +740,4 @@ HIDE FILENAME-BUFFER
 ;
 
 ." 2K Linux" CR
-
-." Loading testsuite" CR
 CONCLUDE" TEST.FRT"
