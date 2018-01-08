@@ -515,7 +515,7 @@ HIDE COMPILE-STRING-CHARACTERS
   SOME-LOOP
 ;
 
-: I     ( -- n ) RP@  4 + @ ;
+: I     ( -- n ) IMMEDIATE POSTPONE R@ ;
 : I-MAX ( -- n ) RP@  8 + @ ;
 : J     ( -- n ) RP@ 12 + @ ;
 : J-MAX ( -- n ) RP@ 16 + @ ;
