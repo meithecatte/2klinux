@@ -343,7 +343,7 @@ HIDE [COMPILE]
 : / /MOD NIP ;
 : MOD /MOD DROP ;
 
-: C, ( u -- ) HERE @ TUCK ! 1+ HERE ! ;
+: C, ( char -- ) HERE @ TUCK ! 1+ HERE ! ;
 
 : WITHIN ( c a b -- within? ) OVER - >R - R> U< ;
 : MINMAX ( a b -- min max )
@@ -741,6 +741,8 @@ CREATE BUFFER 12 ALLOT
 
 HIDE BUFFER
 HIDE LENGTH-CHECK
+
+: COUNTED> ( counted-string -- string strlen ) DUP 1+ SWAP C@ ;
 
 : CONCLUDE"
   POSTPONE S"
