@@ -66,11 +66,6 @@ ORG 0x7C00
 %define DirLowCluster  26
 %define DirEntrySize   32
 
-; Selector constants according to the layout of the GDT
-%define Selector_Code32 0x08
-%define Selector_Code16 0x10
-%define Selector_Data   0x18
-
 MBR:
 	jmp 0:start
 start:
@@ -300,13 +295,7 @@ GDT:
 	dd GDT
 	dw 0
 
-	dw 0xffff
-	dw 0
-	db 0
-	db 0x9a
-	db 0xcf
-	db 0
-
+%define Selector_Code16 0x08
 	dw 0xffff
 	dw 0
 	db 0
@@ -314,6 +303,15 @@ GDT:
 	db 0x8f
 	db 0
 
+%define Selector_Code32 0x10
+	dw 0xffff
+	dw 0
+	db 0
+	db 0x9a
+	db 0xcf
+	db 0
+
+%define Selector_Data   0x18
 	dw 0xffff
 	dw 0
 	db 0
