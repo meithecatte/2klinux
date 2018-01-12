@@ -1,17 +1,18 @@
 ; This Forth implementation is based on jonesforth - https://github.com/nornagon/jonesforth
 ; Any similarities are probably not accidental.
 
-; The first bootstrap stage of this project is implemented as a bootloader. This bootsector
-; implements FAT32, with the assumption that the sector and cluster sizes are both 512 bytes. Long
-; file names are not supported, but their presence for files we don't care about is not harmful. All
-; disk access is done using EDD, which means problems for very old PCs (like pre-Pentium old) or
-; booting from a floppy. Both of these problems don't concern me, like, at all. The FAT partition
-; with all the files should be the first physical partition of the drive.
+; The first bootstrap stage of 2K Linux is implemented as a bootloader. This bootsector implements
+; FAT32, with the assumption that the sector and cluster sizes are both 512 bytes. Long file names
+; are not supported, but their presence for files we don't care about is not harmful. All disk I/O
+; is done using EDD, which means won't work on very old PCs (like pre-Pentium old) or when booting
+; from booting from a floppy. Both of these problems don't concern me a lot, primarily because CHS
+; addressing isn't the most pleasant to work with. Patches welcome. The FAT partition contains all
+; of the necessary source code, and should be the first physical partition of the drive.
 
-; EBP is always set to the value 0x7C00 to generate shorter instructions for accessing some
-; memory locations. Constants that start with a lowercase d represent the offset from 0x7C00, and
-; therefore EBP, of some memory address. Almost all of them need to match up with the offsets defined
-; at the very beginning of stage1.frt
+; EBP is always set to the value 0x7C00 to generate shorter instructions for accessing some memory
+; memory locations. Constants that start with `d` represent an offset from EBP. Almost all of them
+; are also defined in image-files/stage1.frt. It is imperative that these values match between the
+; two files.
 
 ; We use a part of the code section as variables after executing it:
 ;  7C00 -  7C0F -> The EDD disk packet
@@ -19,39 +20,47 @@
 %define dDiskPacketDestOffset  4
 %define dDiskPacketDestSegment 6
 %define dDiskPacketLBA         8
-;  7C10 -  7C13 -> The currently loaded cluster
-%define dBLK 16
-;  7C14 -  7C23 -> Forth variables, all are 4 bytes long
+;  7C10 -  7C23 -> Forth variables, all are 4 bytes long
+%define dBLK 16    ; The currently loaded cluster
 %define dTOIN   20 ; The address of the next byte KEY will read, relative to FileBuffer
 %define dLATEST 24 ; The LFA of the last Forth word defined.
 %define dHERE   28 ; The address of the first free byte of Forth memory.
 %define dSTATE  32 ; 1 if compiling words, 0 if interpreting.
+%define dLENGTH 36 ; The number of characters left in the file currently being read
 
 ; The last two partition entries are reused as a buffer for WORD.
 
 ; The general memory map looks like this:
 ;  0000 -  03FF -> Real mode interrupt vector table
 ;  0400 -  04FF -> The BIOS data area
-;  0500 -  14FF -> FORTH return stack
-%define FORTHR0 0x1500
-;  1500 -  7BFF -> the stack, used as the FORTH parameter stack
+;  0500 -  14FF -> Forth return stack
+%define ForthR0 0x1500
+
+;  1500 -  7BFF -> the stack, used as the Forth parameter stack
 ;  7C00 -  7DFF -> The MBR - the first part of this file
 ;  7E00 -  83FF -> 3 sectors loaded from the FAT filesystem - the second part of this file
+ORG 0x7C00
+
 ;  8400 -  85FF -> A buffer for one sector of a file or directory
 %define FileBuffer 0x8400
+
 ;  8600 -  87FF -> A buffer for one sector of FAT
 %define FATBuffer  0x8600
+
 ;  8800 -  89FF -> A buffer for the sector with BPB
 %define BPBBuffer  0x8800
-;  8A00 - 7FFFF -> Unassigned.
-%define FORTHMemoryStart 0x8A00
+
+;  8A00 - 7FFFF -> The Forth memory. This is where the definitions of all words are stored, except
+;                  the ones defined in this file. HERE is initialized to point to the beginning of
+;                  this memory region.
+%define ForthMemoryStart 0x8A00
+
 ; 80000 - 9FFFF -> Mostly unassigned, but the end is used by the Extended BIOS Data Area. Its size
 ;                  varies, and this 128 KiB is the maximum
 ; A0000 - BFFFF -> Video RAM
 ; C0000 - FFFFF -> ROMs and memory mapped hardware
 
-BITS 16
-ORG 0x7C00
+%define FATNameLength  11
 
 ; Addresses of the values in the BPB we need to correctly parse the FAT filesystem.
 %define BPBReservedSectors BPBBuffer+14
@@ -59,46 +68,80 @@ ORG 0x7C00
 %define BPBSectorsPerFAT   BPBBuffer+36
 %define BPBRootCluster     BPBBuffer+44
 
-; Constants related to FAT directory entries
-%define FATNameLength  11
+; Likewise, the offsets of important fields in a FAT directory entry.
 %define DirAttributes  11
 %define DirHighCluster 20
 %define DirLowCluster  26
 %define DirEntrySize   32
 
+; BIOS loads the first sector of the hard drive at 7C00 and, if the boot signature at offset 0x1FE
+; matches, jumps here, in 16-bit Real Mode.
+BITS 16
+
 MBR:
+; While all BIOSes agree about the destination of the jump, the memory segmentation of x86 present
+; in Real Mode makes it possible to encode the address in two different ways, i. e. 0000:7C00 (the
+; sane option) and 07C0:0000 (the overcomplicated and non-standard option). Because, on x86, jumps
+; and calls are relative, the difference is not immediately obvious, which is probably why the bug
+; went unnoticed until it was too late. However, trying to write code that could be loaded at more
+; than one address without the help of relocation table is tricky. Additionally, the threaded code
+; representation commonly used by Forth systems contains absolute addresses, which breaks when the
+; load address doesn't match, and trying to make it use relative addresses by modifying NEXT is an 
+; unnecessarily complex solution to an inherently simple problem - the simplest way to fix this is
+; a long jump at the very beginning of the code.
 	jmp 0:start
 start:
-	cli ; Disable the interrupts when setting up the stack - always a good idea
+; Since an interrupt can happen at any time, and interrupts use the stack, one has to disable them
+; before moving the stack to a controlled location, since it is not an atomic operation. The other
+; option is pulling your hair out over mysterious intermittent failures.
+	cli
 	mov bp, MBR
 	mov sp, bp
 
+; Here, we set up the segment registers. All real mode code operates in the 00000-0FFFF range, and
+; therefore no values other than zero are necessary...
 	xor cx, cx
 	mov ss, cx
 	mov ds, cx
 	mov es, cx
 
-	dec cx ; Intentional integer underflow
-	mov fs, cx ; FS is set to 0xFFFF for probing the unloved A20 gate. Unloved for a reason.
+; ... except for probing the A20 gate, for which access to segment FFFF is necessary. Look for the
+; Check_A20 routine for more information.
 
-	mov byte[..@DiskNumberPatch], dl ; Self modifying code to save a few bytes.
+	dec cx
+	mov fs, cx
+
+; When BIOS jumps to 0000:7C00, a few valuable values are left in the registers. One of them is of
+; particular interest to any developer of a bootloader or any code that works on a similar level -
+; the DL register contains the BIOS number of the disk the MBR was loaded from, which is primarily
+; used as a parameter to the BIOS disk calls.
+
+; You will see self modifying code in a few places. Every label used to mark these situations uses
+; a suffix `Patch` and, perhaps more importantly, the prefix `..@`, which decouples the label from
+; the system of global and local labels. Please refer to yasm's documentation for more details.
+	mov byte[..@DiskNumberPatch], dl
 	sti
 
-	mov ax, 0x0003 ; Better to set the video mode explicitly...
+; Setting the video mode makes screen output work even if the BIOS leaves the VGA card in graphics
+; mode, like some new BIOSes like to do. This also clears the screen from any BIOS messages.
+
+	mov ax, 0x0003
 	int 0x10
 
-	mov eax, dword[P1LBA] ; Read the first sector of the partition, to get the BPB
-	mov di, BPBBuffer ; This is the first instruction that isn't overlapping with variables
+; Interpreting a FAT filesystem starts with the BIOS Parameter Block, which is stored in the first
+; sector of the partition.
+	mov eax, dword[P1LBA]
+	mov di, BPBBuffer
 	call DiskRead
 
-	; First FAT sector = Partition Start LBA + Reserved Sector Count
-
+; First FAT sector = Partition Start LBA + Reserved Sector Count
+; What follows is the first instruction that isn't overlapping with the variable area at all. The
+; EDD packet is stored in the first 16 bytes and therefore it is safe to use much earlier.
 	movzx ebx, word[BPBReservedSectors]
 	add ebx, dword[P1LBA]
 	mov dword[..@FirstFATSectorPatch], ebx
 
-	; Cluster Zero LBA = First FAT sector + FAT count * sectors per FAT - 2
-
+; Cluster Zero LBA = First FAT sector + FAT count * sectors per FAT - 2
 	mov eax, dword[BPBSectorsPerFAT]
 	movzx ecx, byte[BPBFATCount]
 	mul ecx
@@ -110,10 +153,11 @@ start:
 	mov di, StageZeroFilename
 	push word LoadPartTwo
 	; fallthrough
-	; push X / jmp Y is equivalent to call Y / jmp X, but here jmp Y is a noop
-	; TL;DR: call FindFileRoot / jmp LoadPartTwo
+; push X / jmp Y is equivalent to call Y / jmp X, but here jmp Y is a noop, so it was omitted
+; TL;DR: call FindFileRoot / jmp LoadPartTwo
 
-; FindFileRoot: like FindFile, but look in the root directory of a partition.
+; FindFileRoot: like FindFile, but looks in the root directory of the partition, as opposed to the
+; one currently loaded.
 FindFileRoot:
 	push di
 	mov eax, dword[BPBRootCluster]
@@ -121,7 +165,7 @@ FindFileRoot:
 	pop di
 	; fallthrough
 
-; FindFile: treat the currently loaded file as a directory, find the file with a specified name and
+; FindFile: read the currently loaded file as a directory, find the file with a specified name and
 ; load its first cluster
 ; Input:
 ;  DI = pointer to filename
@@ -475,9 +519,9 @@ PM_Entry:
 	xor eax, eax
 	mov dword[ebp+dLATEST], link_INTERPRET
 	mov [ebp+dSTATE], eax
-	mov ah, FORTHMemoryStart >> 8
+	mov ah, ForthMemoryStart >> 8
 	mov [ebp+dHERE], eax
-	mov ah, FORTHR0 >> 8
+	mov ah, ForthR0 >> 8
 	xchg edi, eax
 
 	; fallthrough
