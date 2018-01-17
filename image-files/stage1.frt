@@ -36,9 +36,12 @@
 : \ IMMEDIATE [ HERE @ ] KEY NL = 0BRANCH [ , ] ;
 
 \ Forth is a very extensible language. For example, you can even define your own comment syntax at
-\ runtime. Moreover, because of the space restriction of the first bootstrap stage of 2K Linux, it
-\ is inevitable. To do this, I needed a few words that are not defined by stage0.asm - at the very
-\ beginning of this file, a few constants are defined that represent important addresses:
+\ runtime. Additionally because of the space restriction of the first bootstrap stage of 2K Linux,
+\ doing so is inevitable. To do this, I needed a few words that are not defined by stage0.asm - at
+\ the very beginning of this file, a few constants are defined. I'm doing it at the very beginning
+\ because the values are also defined in stage0.s, and it is imperative that they have exactly the
+\ same values. A different scenario means chaos. The first batch of constants represents important
+\ variables:
 \ R0 - the initial value of the return stack pointer
 \ S0 - the initial value of the data stack pointer
 \ BLK - holds the cluster number of the currently loaded cluster
