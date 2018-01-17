@@ -117,8 +117,9 @@
 \ Used for checking whether a dictionary entry is marked immediate
 : IMMEDIATE? >FLAGS C@ F_IMMED AND 0<> ;
 
-\ >CFA takes an address of a dictionary entry and returns its execution token, i. e. the address
-\ of its first assembly instruction (`call DOCOL' in case of Forth words)
+\ >CFA takes an address of a dictionary entry and returns the execution token of the word that the
+\ entry represents, that is, the address of the first assembly instruction of that word, which, in 
+\ most cases, is a call to DOCOL.
 : >CFA >FLAGS    \ ( flags-address )
   DUP C@         \ ( flags-address flags )
   F_LENMASK AND  \ ( flags-address name-length )
@@ -132,17 +133,24 @@
 \
 \ : SOME-WORD [ 2 2 + ] LITERAL ;
 \
-\ This is equivalent to `: SOME-WORD 4 ;` but sometimes you want to show where a value comes from
-\ without recalculating it every time the word is executed. It is also useful when defining compile
-\ time words, when combined with POSTPONE or [COMPILE]
+\ This is equivalent to `: SOME-WORD 4 ;`, but sometimes you need to define a literal in the terms
+\ of some address or constant, or you simply want to show where the value came from - LITERAL lets
+\ you do this without a runtime penalty of recalculating the value every time it's used.
+\
+\ LITERAL can also be used without the square bracket part - when used with POSTPONE or [COMPILE],
+\ the uglier and less versatile version of POSTPONE. The implementations of ['] is a good example.
 
-\ Consider this simpler version first: : LITERAL IMMEDIATE ['] LIT , , ;
-: LITERAL IMMEDIATE
-  [ ' LIT     \ ' does not behave the way one could expect it to in compile mode. ['] is what you
-              \ should use in such a case, but we need LITERAL to implement [']
-    DUP , , ] \ LIT LIT will push the address of LIT on the stack
-  , ,
-;
+\ Consider this simpler version first: `: LITERAL IMMEDIATE ['] LIT , , ;`. Since this is not what
+\ you see below, you probably know there's something wrong with this implementation. Namely, there
+\ is a cyclic dependency - ['] is implemented using LITERAL. Therefore, we need to think about the
+\ compiled representation of this word (keep in mind that ['] does its work while compiling):
+\
+\ +--+--+--+--+--+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+\ | call DOCOL   | LIT   | LIT   |   ,   |   ,   | EXIT  |
+\ +--+--+--+--+--+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+\
+\ This can be also achieved like this, even if it's unintuitive:
+: LITERAL IMMEDIATE LIT LIT , , ;
 
 \ [COMPILE] can be used on immediate words only
 : [COMPILE] IMMEDIATE ' , ;
