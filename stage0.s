@@ -74,6 +74,7 @@ ORG 0x7C00
 %define DirAttributes  11
 %define DirHighCluster 20
 %define DirLowCluster  26
+%define DirFileSize    28
 %define DirEntrySize   32
 
 ; BIOS loads the first sector of the hard drive at 7C00 and, if the boot signature at offset 0x1FE
@@ -199,6 +200,8 @@ FindFile:
 	inc di
 	loop short .cmploop
 	popa
+	mov eax, dword[si+DirFileSize]
+	mov dword[bp+dLENGTH], eax
 ; Load the doubleword two bytes earlier to make the desired part land in the most significant word
 	mov eax, dword[si+DirHighCluster-2]
 	mov ax, word[si+DirLowCluster]
@@ -311,12 +314,6 @@ PrintText:
 	call PrintChar
 	jmp short PrintText
 
-ReadNextCluster_ErrorOnEOF:
-	call ReadNextCluster
-	jnc short ..@Return
-	mov si, EOFErrorMsg
-	jmp short Error
-
 ; NULL terminators in filenames are only necessary for error handling
 StageZeroFilename:
 	db 'STAGENOTBIN', 0
@@ -330,11 +327,11 @@ DiskErrorMsg:
 NotFoundMsg:
 	db ' NOTFOUND', 0
 
-EOFErrorMsg:
-	db 'ERREOF', 0
-
 A20ErrorMsg:
 	db 'ERRA20', 0
+
+EOFMessage:
+	db 'EOF!',0
 
 GDT:
 	dw GDT_End-GDT-1
@@ -373,6 +370,15 @@ LoadPartTwo:
 	jc short A20
 	add byte[..@ReadClusterDestinationPatch], 2
 	jmp short .loop
+
+KBC_SendCommand:
+	in al, 0x64
+	test al, 2
+	jnz KBC_SendCommand
+	pop si
+	lodsb
+	out 0x64, al
+	jmp si
 
 MBR_FREESPACE EQU 446 - ($ - $$)
 	times MBR_FREESPACE db 0
@@ -431,15 +437,6 @@ A20:
 	call Check_A20
 	mov si, A20ErrorMsg
 	jmp Error
-
-KBC_SendCommand:
-	in al, 0x64
-	test al, 2
-	jnz KBC_SendCommand
-	pop si
-	lodsb
-	out 0x64, al
-	jmp si
 
 Check_A20:
 	; we have set DS to 0 and FS to 0xFFFF and the very beginning
@@ -1015,13 +1012,18 @@ KEY:
 	NEXT
 
 doKEY:
-	mov ebx, [ebp+dTOIN]
+	mov eax, [ebp+dLENGTH]
+	or eax, eax
+	jz .end
+	dec dword[ebp+dLENGTH]
+
+	mov ebx, dword[ebp+dTOIN]
 	cmp bx, 0x200
 	jb .nonextcluster
 
 	pushad
 	call CallRM
-	dw ReadNextCluster_ErrorOnEOF
+	dw ReadNextCluster
 	popad
 
 	xor ebx, ebx
@@ -1030,6 +1032,7 @@ doKEY:
 	mov al, byte[FileBuffer+ebx]
 	inc ebx
 	mov dword[ebp+dTOIN], ebx
+.end:
 	ret
 
 link_WORD:
@@ -1043,6 +1046,8 @@ _WORD:
 
 doWORD:
 	call doKEY
+	or al, al
+	jz .eof
 	cmp al, ' '
 	jbe doWORD
 	xor ecx, ecx
@@ -1052,10 +1057,18 @@ doWORD:
 	call doKEY
 	cmp al, ' '
 	ja .loop
+
+	; ungetc
 	dec dword[ebp+dTOIN]
+	inc dword[ebp+dLENGTH]
+
 	mov eax, WORDBuffer
 	mov byte[eax+ecx], 0
 	ret
+.eof:
+	mov esi, EOFMessage
+	call CallRM
+	dw Error
 
 link_NUMBER:
 	dw $-link_WORD
