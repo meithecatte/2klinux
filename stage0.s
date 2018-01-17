@@ -60,7 +60,9 @@ ORG 0x7C00
 ; A0000 - BFFFF -> Video RAM
 ; C0000 - FFFFF -> ROMs and memory mapped hardware
 
+; Various constants
 %define FATNameLength  11
+%define SectorLength   512
 
 ; Addresses of the values in the BPB we need to correctly parse the FAT filesystem.
 %define BPBReservedSectors BPBBuffer+14
@@ -86,7 +88,7 @@ MBR:
 ; went unnoticed until it was too late. However, trying to write code that could be loaded at more
 ; than one address without the help of relocation table is tricky. Additionally, the threaded code
 ; representation commonly used by Forth systems contains absolute addresses, which breaks when the
-; load address doesn't match, and trying to make it use relative addresses by modifying NEXT is an 
+; load address doesn't match, and trying to make it use relative addresses by modifying NEXT is an
 ; unnecessarily complex solution to an inherently simple problem - the simplest way to fix this is
 ; a long jump at the very beginning of the code.
 	jmp 0:start
@@ -166,23 +168,23 @@ FindFileRoot:
 	; fallthrough
 
 ; FindFile: read the currently loaded file as a directory, find the file with a specified name and
-; load its first cluster
+; load its first cluster. Also sets >IN and LENGTH appropriately.
 ; Input:
 ;  DI = pointer to filename
 FindFile:
 	xor ecx, ecx
-	mov [bp+dTOIN], ecx
-	mov cl, 16
+	mov dword[bp+dTOIN], ecx
+	mov cl, SectorLength / DirEntrySize
 	mov si, FileBuffer
 .loop:
 	mov al, byte[si]
 	or al, al
 	jz short NotFoundError
-	; normally, you would check if the first byte is 0xE5 (if so, you should skip the entry),
-	; but it won't match the filename anyway
+; usually, one should check whether the first byte is 0xE5 (if so, you should skip the entry), but
+; it won't won't match the filename anyway
 	test byte[si+DirAttributes], 0x0e
 	jnz short .next
-	pushad
+	pusha
 	mov cl, FATNameLength
 .cmploop:
 	lodsb
@@ -196,13 +198,13 @@ FindFile:
 	jne short .nomatch
 	inc di
 	loop short .cmploop
-	popad
-	mov ax, [si+DirHighCluster]
-	shl eax, 16
-	mov ax, [si+DirLowCluster]
+	popa
+; Load the doubleword two bytes earlier to make the desired part land in the most significant word
+	mov eax, dword[si+DirHighCluster-2]
+	mov ax, word[si+DirLowCluster]
 	jmp short ReadCluster
 .nomatch:
-	popad
+	popa
 .next:
 	add si, DirEntrySize
 	loop short .loop
@@ -323,7 +325,7 @@ StageOneFilename:
 	db 'STAGE1  FRT', 0
 
 DiskErrorMsg:
-	db ' DISKERR', 0
+	db ' IOERR', 0
 
 NotFoundMsg:
 	db ' NOTFOUND', 0
@@ -373,7 +375,6 @@ LoadPartTwo:
 	jmp short .loop
 
 MBR_FREESPACE EQU 446 - ($ - $$)
-
 	times MBR_FREESPACE db 0
 
 PartitionTable:
@@ -460,8 +461,8 @@ Check_A20:
 BITS 32
 CallRM:
 	xchg ebp, eax
-	mov eax, [esp]
-	mov eax, [eax]
+	mov eax, dword[esp]
+	mov eax, dword[eax]
 	jmp Selector_Code16:.code16
 BITS 16
 .code16:
@@ -516,15 +517,18 @@ PM_Entry:
 	call CallRM
 	dw FindFileRoot
 
+	mov dword[ebp+dLATEST], LATESTInitialValue
+
 	xor eax, eax
-	mov dword[ebp+dLATEST], link_INTERPRET
-	mov [ebp+dSTATE], eax
+	mov dword[ebp+dSTATE], eax
+
 	mov ah, ForthMemoryStart >> 8
-	mov [ebp+dHERE], eax
+	mov dword[ebp+dHERE], eax
+
 	mov ah, ForthR0 >> 8
 	xchg edi, eax
-
 	; fallthrough
+
 ; Clear the return stack and invoke the INTERPRETer repeatedly
 QUIT:
 	call DOCOL
@@ -1023,9 +1027,9 @@ doKEY:
 	xor ebx, ebx
 .nonextcluster:
 	xor eax, eax
-	mov al, [FileBuffer+ebx]
+	mov al, byte[FileBuffer+ebx]
 	inc ebx
-	mov [ebp+dTOIN], ebx
+	mov dword[ebp+dTOIN], ebx
 	ret
 
 link_WORD:
@@ -1318,6 +1322,8 @@ INTERPRET:
 	mov di, WORDBuffer
 	call CallRM
 	dw NotFoundError
+
+LATESTInitialValue EQU link_INTERPRET
 
 REST_FREESPACE EQU 2048 - ($ - $$)
 	times REST_FREESPACE db 0x00
