@@ -5,6 +5,7 @@
 : LATEST  $7C18 ;
 : HERE    $7C1C ;
 : STATE   $7C20 ;
+: LENGTH  $7C24 ;
 
 : F_IMMED   $80 ;
 : F_HIDDEN  $20 ;
@@ -28,20 +29,23 @@
 : CAND! DUP C@ ROT AND SWAP C! ;
 
 : >FLAGS 2 + ;
-: IMMEDIATE F_IMMED LATEST @ >FLAGS COR! ; IMMEDIATE
+: IMMEDIATE F_IMMED LATEST @ >FLAGS COR! ;
 
-: [ IMMEDIATE FALSE STATE ! ;
+: [ FALSE STATE ! ; IMMEDIATE
 : ] TRUE STATE ! ;
 
-: \ IMMEDIATE [ HERE @ ] KEY NL = 0BRANCH [ , ] ;
+: \ [ HERE @ ] KEY NL = 0BRANCH [ , ] ; IMMEDIATE
+
+\ ---------- AN EXPLANATION OF WHAT HAS JUST HAPPENED --------------------------------------------
 
 \ Forth is a very extensible language. For example, you can even define your own comment syntax at
-\ runtime. Additionally because of the space restriction of the first bootstrap stage of 2K Linux,
-\ doing so is inevitable. To do this, I needed a few words that are not defined by stage0.asm - at
-\ the very beginning of this file, a few constants are defined. I'm doing it at the very beginning
-\ because the values are also defined in stage0.s, and it is imperative that they have exactly the
-\ same values. A different scenario means chaos. The first batch of constants represents important
-\ variables:
+\ runtime. Because space is tight in the initial binary, no comment words are included, what makes
+\ doing so a necessity, instead of being just an exercise. However, to define the comment word you
+\ see above, I needed some other words, which I will explain here.
+
+\ At the very beginning of this file, a few constants are defined. It's done here, because exactly
+\ the same values are also defined in stage0.s, and any discrepncies mean chaos.
+\ The first batch of constants contains important addresses:
 \ R0 - the initial value of the return stack pointer
 \ S0 - the initial value of the data stack pointer
 \ BLK - holds the cluster number of the currently loaded cluster
@@ -51,9 +55,13 @@
 \ LATEST - holds the address of the last word defined
 \ HERE - holds the address of the first free byte of memory
 \ STATE - FALSE if interpreting words, TRUE when compiling
+\ LENGTH - the number of bytes left in the currently open file. When this goes down to 0, KEY will
+\          return zeroes indefinitely. Since binary files are not expected, this should be handled
+\          appropriately by anything using KEY directly. The definition of \ will be extended when
+\          proper control flow becomes possible.
 
-\ Furthermore, the flags describing the flags field are also defined. Their meaning is the same as
-\ of the corresponding constants in the assembly file.
+\ Below, the constants describing the flags field of a dictionary entry are defined. You should go
+\ to stage0.s for more information if their meaning is unclear.
 
 \ ROOT is a word that LOADs the first cluster of the root directory, and because it depends on the
 \ the address of BPBRootCluster, it's also defined here.
@@ -78,28 +86,27 @@
 \ All of this makes it possible to define IMMEDIATE. Unsurprisingly, IMMEDIATE is used to mark the
 \ word defined last as immediate. This flag means that INTERPRET runs the marked word immediately,
 \ _even if it's in compile mode_. One example is the ; word used to end definitions. We want it to
-\ run now, not when the new word is used.
+\ run now, not when the new word is used, which would mean it is impossible to exit compile mode.
 
-\ The way IMMEDIATE is implemented is surprisingly simple.  `LATEST @ >FLAGS` gives the address of
-\ the relevant flags field, which is then ORed with F_IMMED to set the immediate flag.
-
-\ IMMEDIATE is itself marked that way to make it possible to say `: NEW-WORD IMMEDIATE` instead of
-\ `: NEW-WORD ... ; IMMEDIATE`, because, while definitely a matter of taste, the former is cleaner
-\ according to many users of Forth.
+\ The way IMMEDIATE is implemented is surprisingly simple. The `LATEST @ >FLAGS` part results with
+\ the address of the flags field of the relevant dictionary entry, which is then ORed with F_IMMED
+\ to set the immediate flag.
 
 \ [ and ] can be used to temporarily enter the interpretation mode while defining a word, which is
 \ mostly useful to calculate something once and make it a number literal.
 
 \ This functionality is used while defining \, since the loop constructs are not yet available. If
-\ they were, this word would be defined as `: \ IMMEDIATE BEGIN KEY NL = UNTIL ;`, which is surely
+\ they were, this word would be defined as `: \ BEGIN KEY NL = UNTIL ; IMMEDIATE`, which is surely
 \ easier to understand - skip characters until you encounter a newline.
 
 \ This word is marked as immediate to make comments work correctly in compile mode.  The way BEGIN
 \ and UNTIL are replaced in that definition should become clear when we define control flow words,
 \ but some simpler words will come first.
 
-\ Because of space restriction of stage0.asm, only some comparsions are primitive. The rest can be
-\ done by inverting the result of a different comparison.
+\ ---------- COMPARISONS AND NEGATE --------------------------------------------------------------
+
+\ Because of space restriction of stage0.asm, only some comparisons are primitive. The rest can be
+\ accomplished by inverting the result of a different comparison.
 : <> = INVERT ;
 : >= < INVERT ;
 : <= > INVERT ;
@@ -111,69 +118,102 @@
 : U>= U< INVERT ;
 : U<= U> INVERT ;
 
-\ In two's complement, you invert all the bits and add one to compute the additive inverse.
+\ The way one should implement NEGATE depends on the way the computer represents negative numbers.
+\ The system most computers use is called the two's complement, and in that case you should invert
+\ all the bits and add one to compute the additive inverse.
 : NEGATE INVERT 1+ ;
 
-\ Used for checking whether a dictionary entry is marked immediate
-: IMMEDIATE? >FLAGS C@ F_IMMED AND 0<> ;
+: CHAR WORD DROP C@ ;
 
-\ >CFA takes an address of a dictionary entry and returns the execution token of the word that the
-\ entry represents, that is, the address of the first assembly instruction of that word, which, in 
-\ most cases, is a call to DOCOL.
+\ ---------- THE UNINTUITIVE IMPLEMENTATION OF LITERAL -------------------------------------------
+
+\ LITERAL is a compile-time word that is used to define computed number literals. Consider
+\ : SOME-WORD [ 2 2 + ] LITERAL ;
+
+\ This is equivalent to `: SOME-WORD 4 ;`, but sometimes you need to define a literal in the terms
+\ of some address or constant, or you simply want to show where the value came from - LITERAL lets
+\ you do this without a runtime penalty of recalculating the value every time it's used.
+
+\ LITERAL can also be used without the square bracket part - when used with POSTPONE or [COMPILE],
+\ the uglier and less versatile version of POSTPONE. The implementations of ['] is a good example.
+
+\ Consider this simpler version first: `: LITERAL ['] LIT , , ; IMMEDIATE`. Since this is not what
+\ you see below, you probably know there's something wrong with this implementation. Namely, there
+\ is a cyclic dependency - ['] is implemented using LITERAL. Therefore, we need to think about the
+\ compiled representation of this word (keep in mind that ['] does its work while compiling):
+
+\ +--+--+--+--+--+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+\ | call DOCOL   | LIT   | LIT   |   ,   |   ,   | EXIT  |
+\ +--+--+--+--+--+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+
+\ Therefore, one can implement LITERAL as follows, with the only drawback being unintuitiveness.
+: LITERAL LIT LIT , , ; IMMEDIATE
+
+\ ---------- EXECUTION TOKENS --------------------------------------------------------------------
+
+\ Forth specifies a mechanism called execution tokens, somewhat similar to function pointers in C.
+\ An execution token is defined as a pointer to the first assembly instruction of a word. A lot of
+\ words are defined using `:` and `;`. Words defined that way begin with a call to DOCOL, which is
+\ then followed by a list of execution tokens, usually terminated by EXIT. To get an such a token,
+\ you should pass a pointer to the dictionary entry of a word to >CFA.
+
 : >CFA >FLAGS    \ ( flags-address )
   DUP C@         \ ( flags-address flags )
   F_LENMASK AND  \ ( flags-address name-length )
   + 1+           \ skip name-length bytes, plus one more for the flags byte itself
 ;
 
-\ ' SOME-WORD will push the execution token of SOME-WORD
+\ However, this is not the only way. In immediate mode, `' SOMEWORD` will push the execution token
+\ of SOME-WORD. ' is not immediate, and sometimes you want to use ['] instead. Imagine you want to
+\ manipulate the variable HANDLER-XT, which is supposed to contain an execution token. If you were
+\ going to do it often in your program, you would probably want some words to do it for you:
+
+\ : SET-HANDLER ' HANDLER-XT ! ;
+\ : SWITCH-TO-FIRST-HANDLER ['] FIRST-HANDLER HANDLER-XT ! ;
+
+\ Note that SET-HANDLER won't work like you expect in a word definition, i. e. you can't do
+\ : SWITCH-TO-FIRST-HANDLER SET-HANDLER FIRST-HANDLER ;
+
+\ To create an implementation of SET-HANDLER that works like that, you should look into `POSTPONE`
+\ and `IMMEDIATE`, probably combined with `LITERAL` or `[']`.
+
+\ Important: add a check for non-existent words after implementing all words necessary to do so.
 : ' WORD FIND >CFA ;
 
-\ LITERAL is a compile-time word that is used to define computed number literals. Consider
-\
-\ : SOME-WORD [ 2 2 + ] LITERAL ;
-\
-\ This is equivalent to `: SOME-WORD 4 ;`, but sometimes you need to define a literal in the terms
-\ of some address or constant, or you simply want to show where the value came from - LITERAL lets
-\ you do this without a runtime penalty of recalculating the value every time it's used.
-\
-\ LITERAL can also be used without the square bracket part - when used with POSTPONE or [COMPILE],
-\ the uglier and less versatile version of POSTPONE. The implementations of ['] is a good example.
+\ ---------- POOR MAN'S POSTPONE -----------------------------------------------------------------
 
-\ Consider this simpler version first: `: LITERAL IMMEDIATE ['] LIT , , ;`. Since this is not what
-\ you see below, you probably know there's something wrong with this implementation. Namely, there
-\ is a cyclic dependency - ['] is implemented using LITERAL. Therefore, we need to think about the
-\ compiled representation of this word (keep in mind that ['] does its work while compiling):
-\
-\ +--+--+--+--+--+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-\ | call DOCOL   | LIT   | LIT   |   ,   |   ,   | EXIT  |
-\ +--+--+--+--+--+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-\
-\ This can be also achieved like this, even if it's unintuitive:
-: LITERAL IMMEDIATE LIT LIT , , ;
+\ Imagine you wanted to implement ENDIF, a word that would be equivalent to THEN, to make it clear
+\ for anyone reading your code that doesn't know anything about Forth. This can be accomplished by
+\ using POSTPONE:
+\ : ENDIF POSTPONE THEN ; IMMEDIATE
 
-\ [COMPILE] can be used on immediate words only
-: [COMPILE] IMMEDIATE ' , ;
+\ That way, THEN will be executed when ENDIF is used, instead of the moment ENDIF is defined. This
+\ can also be used with non-immediate words, for example
+\ : CELL+ POSTPONE 4+ ; IMMEDIATE
+\ will not add the overhead of one more call in the callstack during execution, compared to
+\ : CELL+ 4+ ;
+\ You can do much more than these kinds of "aliases", but this is the simplest way to explain it. 
 
-\ ['] SOME-WORD is equivalent to [ ' SOME-WORD ] LITERAL
-: ['] IMMEDIATE ' [COMPILE] LITERAL ;
+\ However, to implement POSTPONE you would have to detect whether a word is immediate, and compile
+\ it differently based on that information. To avoid circular dependencies, we implement [COMPILE]
+\ and COMPILE, which are limited versions of POSTPONE - [COMPILE] only handles immediate words and
+\ COMPILE only handles non-immediate words. Using the wrong variant is undefined behavior.
 
-\ COMPILE can be used on non-immediate words only, COMPILE SOME-WORD <=> ['] SOME-WORD ,
-: COMPILE IMMEDIATE
-  ' [COMPILE] LITERAL
-  ['] , , \ COMPILE ,
+\ [COMPILE] IF is equivalent to [ ' IF , ]
+: [COMPILE] ' , ; IMMEDIATE
+
+\ COMPILE DROP is equivalent to ['] DROP ,
+: COMPILE R> \ get a pointer to the execution token of the word after COMPILE
+  DUP @ ,    \ compile that execution token
+  4+         \ move the pointer so that the word that has just been compiled won't get executed
+  >R         \ put the pointer back on the return stack
 ;
 
-\ COMPILE and [COMPILE] will later get merged into one word called POSTPONE, but we need to define
-\ IF, ELSE and THEN first
-
-\ RECURSE calls the word that's currently being defined
-: RECURSE IMMEDIATE LATEST @ >CFA , ;
-
-: CHAR WORD DROP C@ ;
+\ ['] SOME-WORD is equivalent to [ ' SOME-WORD ] LITERAL
+: ['] ' [COMPILE] LITERAL ; IMMEDIATE
 
 \ [CHAR] X is equivalent to [ CHAR X ] LITERAL
-: [CHAR] IMMEDIATE CHAR [COMPILE] LITERAL ;
+: [CHAR] CHAR [COMPILE] LITERAL ; IMMEDIATE
 
 \ With all of that up our sleeves we can pursue defining control flow words, starting with IF and
 \ THEN.
@@ -184,16 +224,16 @@
 \ before 0BRANCH ptr inside after
 \                 \_________^
 
-: IF IMMEDIATE
+: IF
   COMPILE 0BRANCH
   HERE @ \ save the location of the branch destination word on the data stack DURING COMPILATION
   0 , \ compile a dummy destination
-;
+; IMMEDIATE
 
-: THEN IMMEDIATE \ ( ptr-addr )
+: THEN \ ( ptr-addr )
   HERE @ \ ( ptr-addr ptr-val )
   SWAP !
-;
+; IMMEDIATE
 
 \ before IF true ELSE false THEN after
 \ compiles to
@@ -203,27 +243,28 @@
 \                                  T         |
 \                                  \_________/
 
-: ELSE IMMEDIATE \ ( ptr1-addr )
+: ELSE \ ( ptr1-addr )
   COMPILE BRANCH
   HERE @ \ ( ptr1-addr ptr2-addr )
   0 ,    \ compile a dummy ptr2
   HERE @ \ ( ptr1-addr ptr2-addr ptr1-val )
   ROT !
-;
-
-: POSTPONE IMMEDIATE
-  WORD FIND DUP IMMEDIATE? IF
-    >CFA ,
-  ELSE
-    >CFA [COMPILE] LITERAL
-    COMPILE ,
-  THEN
-;
+; IMMEDIATE
 
 \ HIDDEN takes an address of a dictionary entry and toggles its hidden flag
 : HIDDEN >FLAGS F_HIDDEN SWAP CXOR! ;
 : HIDDEN? >FLAGS C@ F_HIDDEN AND 0<> ;
 : HIDE WORD FIND HIDDEN ;
+
+\ Used for checking whether a dictionary entry is marked immediate
+: IMMEDIATE? >FLAGS C@ F_IMMED AND 0<> ;
+
+: POSTPONE
+  WORD FIND DUP IMMEDIATE? INVERT IF
+    COMPILE COMPILE
+  THEN
+  >CFA ,
+; IMMEDIATE
 
 HIDE COMPILE
 HIDE [COMPILE]
@@ -236,8 +277,8 @@ HIDE [COMPILE]
 \ before inside BRANCH ptr after
 \        ^______________/
 
-: BEGIN IMMEDIATE HERE @ ;
-: AGAIN IMMEDIATE POSTPONE BRANCH , ;
+: BEGIN HERE @ ; IMMEDIATE
+: AGAIN POSTPONE BRANCH , ; IMMEDIATE
 
 \ before BEGIN inside UNTIL after
 \ compiles to
@@ -245,7 +286,7 @@ HIDE [COMPILE]
 \ before inside 0BRANCH ptr after
 \        ^_______________/
 
-: UNTIL IMMEDIATE POSTPONE 0BRANCH , ;
+: UNTIL POSTPONE 0BRANCH , ; IMMEDIATE
 
 \ before BEGIN condition WHILE inside REPEAT after
 \ compiles to
@@ -254,39 +295,39 @@ HIDE [COMPILE]
 \        ^__________________|__________________/   ^
 \                           \______________________/
 
-: WHILE IMMEDIATE
+: WHILE
   POSTPONE 0BRANCH
   HERE @
   0 ,
-;
+; IMMEDIATE
 
-: REPEAT IMMEDIATE \ ( ptr2-val ptr1-addr )
+: REPEAT \ ( ptr2-val ptr1-addr )
   POSTPONE BRANCH
   SWAP , \ ( ptr1-addr )
   HERE @
   SWAP !
-;
+; IMMEDIATE
 
-\ CASE                         ( push 0 during compilation to count the necessary amount of IFs )
+\ CASE                         ( push 0 during compilation to count the IFs )
 \ test1 OF ... ENDOF           test1 OVER = IF DROP ... ELSE
 \ test2 OF ... ENDOF           test2 OVER = IF DROP ... ELSE
 \ test3 OF ... ENDOF           test3 OVER = IF DROP ... ELSE
 \ default-case                 default-case
 \ ENDCASE                      DROP THEN THEN THEN
 
-: CASE IMMEDIATE 0 ;
-: OF IMMEDIATE
+: CASE 0 ; IMMEDIATE
+: OF
   POSTPONE OVER
   POSTPONE =
   POSTPONE IF
   POSTPONE DROP
-;
+; IMMEDIATE
 
-: ENDOF IMMEDIATE
+: ENDOF
   POSTPONE ELSE
-;
+; IMMEDIATE
 
-: ENDCASE IMMEDIATE
+: ENDCASE
   POSTPONE DROP
   BEGIN
     DUP 0<>
@@ -294,10 +335,10 @@ HIDE [COMPILE]
     POSTPONE THEN
   REPEAT
   DROP
-;
+; IMMEDIATE
 
 \ this is enough control structures to define parenthesis comments
-: ( IMMEDIATE          \ ( -- )
+: (                    \ ( -- )
   1                    \ allow nested comments by storing the depth
   BEGIN KEY            \ ( depth key )
     CASE
@@ -306,7 +347,7 @@ HIDE [COMPILE]
     ENDCASE
   DUP 0= UNTIL         \ ( depth )
   DROP                 \ ( )
-;
+; IMMEDIATE
 
 : CELLS ( CELLS turns a number of cells into a number of bytes ) 2 LSHIFT ;
 : CELL+ 4+ ;
@@ -390,7 +431,7 @@ HIDE [COMPILE]
   DROP
 ;
 
-: S" IMMEDIATE
+: S"
   ( S" behaves correctly even in immediate mode )
   STATE @ IF
     ( we're in compile mode, compile LITSTRING )
@@ -411,7 +452,7 @@ HIDE [COMPILE]
     OVER - ( first-char-addr length )
     OVER HERE ! ( restore HERE )
   THEN
-;
+; IMMEDIATE
 
 HIDE COMPILE-STRING-CHARACTERS
 
@@ -469,26 +510,26 @@ HIDE COMPILE-STRING-CHARACTERS
   NIP SWAP >R     ( should-stop-looping? R: limit new-counter retaddr )
 ;
 
-: LEAVE IMMEDIATE
+: LEAVE
   POSTPONE BRANCH
   [ LATEST @ >CFA ] LITERAL ,
-;
+; IMMEDIATE
 
-: UNLOOP IMMEDIATE
+: UNLOOP
   POSTPONE 2RDROP
-;
+; IMMEDIATE
 
-: DO IMMEDIATE
+: DO
   POSTPONE 2>R
   HERE @
-;
+; IMMEDIATE
 
-: ?DO IMMEDIATE
+: ?DO
   POSTPONE (?DO)
   POSTPONE 0BRANCH
   ['] LEAVE ,
   HERE @
-;
+; IMMEDIATE
 
 : SOME-LOOP
   POSTPONE 0BRANCH
@@ -516,17 +557,17 @@ HIDE COMPILE-STRING-CHARACTERS
   2DROP
 ;
 
-: LOOP IMMEDIATE
+: LOOP
   POSTPONE (LOOP)
   SOME-LOOP
-;
+; IMMEDIATE
 
-: +LOOP IMMEDIATE
+: +LOOP
   POSTPONE (+LOOP)
   SOME-LOOP
-;
+; IMMEDIATE
 
-: I     ( -- n ) IMMEDIATE POSTPONE R@ ;
+: I     ( -- n ) POSTPONE R@ ; IMMEDIATE
 : I-MAX ( -- n ) RP@  8 + @ ;
 : J     ( -- n ) RP@ 12 + @ ;
 : J-MAX ( -- n ) RP@ 16 + @ ;
@@ -537,14 +578,14 @@ HIDE SOME-LOOP
 
 : TYPE ( c-addr u -- ) 0 MAX 0 ?DO DUP C@ EMIT 1+ LOOP DROP ;
 
-: ." IMMEDIATE
+: ."
   POSTPONE S"
   STATE @ IF
     POSTPONE TYPE
   ELSE
     TYPE
   THEN
-;
+; IMMEDIATE
 
 : PUSH-IMM32, $68 C, , ;
 : NEXT, $AD C, $FF C, $E0 C, ;
@@ -587,29 +628,32 @@ HIDE NEXT,
   THEN
 ;
 
-: IF       IMMEDIATE S" IF"       COMPILE-ONLY POSTPONE IF ;
-: ELSE     IMMEDIATE S" ELSE"     COMPILE-ONLY POSTPONE ELSE ;
-: THEN     IMMEDIATE S" THEN"     COMPILE-ONLY POSTPONE THEN ;
-: CASE     IMMEDIATE S" CASE"     COMPILE-ONLY POSTPONE CASE ;
-: ENDCASE  IMMEDIATE S" ENDCASE"  COMPILE-ONLY POSTPONE ENDCASE ;
-: OF       IMMEDIATE S" OF"       COMPILE-ONLY POSTPONE OF ;
-: ENDOF    IMMEDIATE S" ENDOF"    COMPILE-ONLY POSTPONE ENDOF ;
-: BEGIN    IMMEDIATE S" BEGIN"    COMPILE-ONLY POSTPONE BEGIN ;
-: AGAIN    IMMEDIATE S" AGAIN"    COMPILE-ONLY POSTPONE AGAIN ;
-: UNTIL    IMMEDIATE S" UNTIL"    COMPILE-ONLY POSTPONE UNTIL ;
-: WHILE    IMMEDIATE S" WHILE"    COMPILE-ONLY POSTPONE WHILE ;
-: REPEAT   IMMEDIATE S" REPEAT"   COMPILE-ONLY POSTPONE REPEAT ;
-: DO       IMMEDIATE S" DO"       COMPILE-ONLY POSTPONE DO ;
-: ?DO      IMMEDIATE S" ?DO"      COMPILE-ONLY POSTPONE ?DO ;
-: LOOP     IMMEDIATE S" LOOP"     COMPILE-ONLY POSTPONE LOOP ;
-: +LOOP    IMMEDIATE S" +LOOP"    COMPILE-ONLY POSTPONE +LOOP ;
-: LEAVE    IMMEDIATE S" LEAVE"    COMPILE-ONLY POSTPONE LEAVE ;
-: UNLOOP   IMMEDIATE S" UNLOOP"   COMPILE-ONLY POSTPONE UNLOOP ;
-: POSTPONE IMMEDIATE S" POSTPONE" COMPILE-ONLY POSTPONE POSTPONE ;
-: RECURSE  IMMEDIATE S" RECURSE"  COMPILE-ONLY POSTPONE RECURSE ;
-: LITERAL  IMMEDIATE S" LITERAL"  COMPILE-ONLY POSTPONE LITERAL ;
-: [']      IMMEDIATE S" [']"      COMPILE-ONLY POSTPONE ['] ;
-: [CHAR]   IMMEDIATE S" [CHAR]"   COMPILE-ONLY POSTPONE [CHAR] ;
+: IF       S" IF"       COMPILE-ONLY POSTPONE IF       ; IMMEDIATE
+: ELSE     S" ELSE"     COMPILE-ONLY POSTPONE ELSE     ; IMMEDIATE
+: THEN     S" THEN"     COMPILE-ONLY POSTPONE THEN     ; IMMEDIATE
+: CASE     S" CASE"     COMPILE-ONLY POSTPONE CASE     ; IMMEDIATE
+: ENDCASE  S" ENDCASE"  COMPILE-ONLY POSTPONE ENDCASE  ; IMMEDIATE
+: OF       S" OF"       COMPILE-ONLY POSTPONE OF       ; IMMEDIATE
+: ENDOF    S" ENDOF"    COMPILE-ONLY POSTPONE ENDOF    ; IMMEDIATE
+: BEGIN    S" BEGIN"    COMPILE-ONLY POSTPONE BEGIN    ; IMMEDIATE
+: AGAIN    S" AGAIN"    COMPILE-ONLY POSTPONE AGAIN    ; IMMEDIATE
+: UNTIL    S" UNTIL"    COMPILE-ONLY POSTPONE UNTIL    ; IMMEDIATE
+: WHILE    S" WHILE"    COMPILE-ONLY POSTPONE WHILE    ; IMMEDIATE
+: REPEAT   S" REPEAT"   COMPILE-ONLY POSTPONE REPEAT   ; IMMEDIATE
+: DO       S" DO"       COMPILE-ONLY POSTPONE DO       ; IMMEDIATE
+: ?DO      S" ?DO"      COMPILE-ONLY POSTPONE ?DO      ; IMMEDIATE
+: LOOP     S" LOOP"     COMPILE-ONLY POSTPONE LOOP     ; IMMEDIATE
+: +LOOP    S" +LOOP"    COMPILE-ONLY POSTPONE +LOOP    ; IMMEDIATE
+: LEAVE    S" LEAVE"    COMPILE-ONLY POSTPONE LEAVE    ; IMMEDIATE
+: UNLOOP   S" UNLOOP"   COMPILE-ONLY POSTPONE UNLOOP   ; IMMEDIATE
+: POSTPONE S" POSTPONE" COMPILE-ONLY POSTPONE POSTPONE ; IMMEDIATE
+: LITERAL  S" LITERAL"  COMPILE-ONLY POSTPONE LITERAL  ; IMMEDIATE
+: [']      S" [']"      COMPILE-ONLY POSTPONE [']      ; IMMEDIATE
+: [CHAR]   S" [CHAR]"   COMPILE-ONLY POSTPONE [CHAR]   ; IMMEDIATE
+
+( RECURSE calls the word that's currently being defined - using the name of the word directly will
+  compile a call to the previous definition. This is also an example of how to use COMPILE-ONLY. )
+: RECURSE S" RECURSE" COMPILE-ONLY LATEST @ >CFA , ; IMMEDIATE
 
 : .DIGIT
   DUP 10 < IF
