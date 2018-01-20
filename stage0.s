@@ -20,8 +20,8 @@
 %define dDiskPacketDestOffset  4
 %define dDiskPacketDestSegment 6
 %define dDiskPacketLBA         8
-;  7C10 -  7C23 -> Forth variables, all are 4 bytes long
-%define dBLK 16    ; The currently loaded cluster
+;  7C10 -  7C23 -> Forth variables, all are 4 bytes long. More detail can be found in stage1.frt.
+%define dBLK    16 ; The currently loaded cluster
 %define dTOIN   20 ; The address of the next byte KEY will read, relative to FileBuffer
 %define dLATEST 24 ; The LFA of the last Forth word defined.
 %define dHERE   28 ; The address of the first free byte of Forth memory.
@@ -1051,8 +1051,9 @@ doWORD:
 	cmp al, ' '
 	jbe doWORD
 	xor ecx, ecx
+	mov edx, WORDBuffer
 .loop:
-	mov [WORDBuffer+ecx], al
+	mov [edx+ecx], al
 	inc ecx
 	call doKEY
 	cmp al, ' '
@@ -1062,8 +1063,8 @@ doWORD:
 	dec dword[ebp+dTOIN]
 	inc dword[ebp+dLENGTH]
 
-	mov eax, WORDBuffer
-	mov byte[eax+ecx], 0
+	mov byte[edx+ecx], 0
+	xchg edx, eax
 	ret
 .eof:
 	mov esi, EOFMessage
