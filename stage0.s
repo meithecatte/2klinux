@@ -60,8 +60,6 @@ ORG 0x7C00
 ; A0000 - BFFFF -> Video RAM
 ; C0000 - FFFFF -> ROMs and memory mapped hardware
 
-; Various constants
-%define FATNameLength  11
 %define SectorLength   512
 
 ; Addresses of the values in the BPB we need to correctly parse the FAT filesystem.
@@ -69,13 +67,6 @@ ORG 0x7C00
 %define BPBFATCount        BPBBuffer+16
 %define BPBSectorsPerFAT   BPBBuffer+36
 %define BPBRootCluster     BPBBuffer+44
-
-; Likewise, the offsets of important fields in a FAT directory entry.
-%define DirAttributes  11
-%define DirHighCluster 20
-%define DirLowCluster  26
-%define DirFileSize    28
-%define DirEntrySize   32
 
 ; BIOS loads the first sector of the hard drive at 7C00 and, if the boot signature at offset 0x1FE
 ; matches, jumps here, in 16-bit Real Mode.
@@ -108,9 +99,7 @@ start:
 	mov ds, cx
 	mov es, cx
 
-; ... except for probing the A20 gate, for which access to segment FFFF is necessary. Look for the
-; Check_A20 routine for more information.
-
+; ... except for probing the A20 gate, for which access to the segment FFFF is required.
 	dec cx
 	mov fs, cx
 
@@ -127,44 +116,80 @@ start:
 
 ; Setting the video mode makes screen output work even if the BIOS leaves the VGA card in graphics
 ; mode, like some new BIOSes like to do. This also clears the screen from any BIOS messages.
-
 	mov ax, 0x0003
 	int 0x10
 
 ; Interpreting a FAT filesystem starts with the BIOS Parameter Block, which is stored in the first
 ; sector of the partition.
 	mov eax, dword[P1LBA]
+; What follows is the first instruction that isn't overlapping with the variable area at all.
 	mov di, BPBBuffer
-	call DiskRead
+	call near DiskRead
 
 ; First FAT sector = Partition Start LBA + Reserved Sector Count
-; What follows is the first instruction that isn't overlapping with the variable area at all. The
-; EDD packet is stored in the first 16 bytes and therefore it is safe to use much earlier.
 	movzx ebx, word[BPBReservedSectors]
 	add ebx, dword[P1LBA]
 	mov dword[..@FirstFATSectorPatch], ebx
 
-; Cluster Zero LBA = First FAT sector + FAT count * sectors per FAT - 2
+; Cluster Zero LBA = First FAT sector + FAT count * Sectors Per FAT - 2
 	mov eax, dword[BPBSectorsPerFAT]
 	movzx ecx, byte[BPBFATCount]
 	mul ecx
 	add eax, ebx
-	dec eax
-	dec eax
+	sub eax, 2
 	mov dword[..@ClusterZeroLBAPatch], eax
 
 	mov di, StageZeroFilename
 	push word LoadPartTwo
 	; fallthrough
-; push X / jmp Y is equivalent to call Y / jmp X, but here jmp Y is a noop, so it was omitted
-; TL;DR: call FindFileRoot / jmp LoadPartTwo
+; push X / jmp Y is equivalent to call near Y / jmp X, but here jmp Y is a noop, so it was omitted
+; TL;DR: call near FindFileRoot / jmp LoadPartTwo
+
+; ---------- PARSING FAT DIRECTORIES -------------------------------------------------------------
+
+; In a FAT filesystem, a directory is just a file that stores constant-size directory entries. One
+; directory entry contains:
+;  - a filename (at offsets 0 - 10)
+;  - an attribute byte (at offset 11)
+;  - the high 16 bits of the first cluster number of the file the entry describes (at offset 20)
+;  - the low 16 bits of the cluster number (at offset 26)
+;  - the size of the file (at offset 28)
+;  - a lot of information we don't care about like the creation and modification date.
+
+%define FATNameLength  11
+%define DirAttributes  11
+%define DirHighCluster 20
+%define DirLowCluster  26
+%define DirFileSize    28
+%define DirEntrySize   32
+
+; The attribute byte is a bit field:
+;  - bit 0 (value 1): if set, the file is read only
+;  - bit 1 (value 2): if set, the file is hidden
+;  - bit 2 (value 4): if set, the file is marked as a system file
+;  - bit 3 (value 8): if set, this is not a file but a volume ID
+;  - bit 4 (value 16): if set, the file is a directory
+;  - bit 5 (value 32): if set, the file has been changed since this bit has last been cleared - it
+;                      is commonly used by archiving/backup software.
+; If the entry is not a file but a long file name entry, it is marked as read only, hidden, system
+; and volume ID, which is unambiguous because volume ID excludes all other three.
+
+%define AttrReadOnly  1
+%define AttrHidden    2
+%define AttrSystem    4
+%define AttrVolumeID  8
+%define AttrDirectory 16
+%define AttrArchive   32
+
+; If the entry has either of the following bits set, ignore it
+%define AttrMaskIgnore AttrVolumeID | AttrSystem | AttrHidden
 
 ; FindFileRoot: like FindFile, but looks in the root directory of the partition, as opposed to the
 ; one currently loaded.
 FindFileRoot:
 	push di
 	mov eax, dword[BPBRootCluster]
-	call ReadCluster
+	call near ReadCluster
 	pop di
 	; fallthrough
 
@@ -173,22 +198,33 @@ FindFileRoot:
 ; Input:
 ;  DI = pointer to filename
 FindFile:
+; Set >IN to 0
 	xor ecx, ecx
-	mov dword[bp+dTOIN], ecx
+	mov dword[byte bp+dTOIN], ecx
+
+; Initialize the loop counter for this cluster
 	mov cl, SectorLength / DirEntrySize
+; SI holds a pointer to the entry currently being processed
 	mov si, FileBuffer
 .loop:
+; If the filename starts with a zero, the directory ended, which means we couldn't find the file.
 	mov al, byte[si]
 	or al, al
 	jz short NotFoundError
-; usually, one should check whether the first byte is 0xE5 (if so, you should skip the entry), but
-; it won't won't match the filename anyway
-	test byte[si+DirAttributes], 0x0e
+; Usually, one should check whether the first byte is 0xE5 (if so, you should skip the entry), but
+; it won't won't match the filename anyway.
+
+; Check the attribute byte for any flags that indicate we should skip it.
+	test byte[byte si+DirAttributes], AttrMaskIgnore
 	jnz short .next
+
+; Before comparing the filename, CL, SI and DI need to be pushed on the stack, but remembering all
+; registers is shorter and doesn't hurt.
 	pusha
 	mov cl, FATNameLength
 .cmploop:
 	lodsb
+; Convert the bytes coming from disk to uppercase.
 	cmp al, 'a'
 	jb .noconvert
 	cmp al, 'z'
@@ -200,53 +236,59 @@ FindFile:
 	inc di
 	loop short .cmploop
 	popa
-	mov eax, dword[si+DirFileSize]
-	mov dword[bp+dLENGTH], eax
-; Load the doubleword two bytes earlier to make the desired part land in the most significant word
-	mov eax, dword[si+DirHighCluster-2]
-	mov ax, word[si+DirLowCluster]
+
+; We have a match! Set LENGTH and load the first cluster.
+	mov eax, dword[byte si+DirFileSize]
+	mov dword[byte bp+dLENGTH], eax
+; Load the doubleword two bytes earlier to make the desired part land in the more significant word
+	mov eax, dword[byte si+DirHighCluster-2]
+	mov ax, word[byte si+DirLowCluster]
 	jmp short ReadCluster
 .nomatch:
 	popa
 .next:
 	add si, DirEntrySize
 	loop short .loop
+; Load next cluster of the directory and start from the beginning
 	push di
-	call ReadNextCluster
+	call near ReadNextCluster
 	pop di
 	jnc short FindFile
 NotFoundError:
 	mov si, di
-	call PrintText
+	call near PrintText
 	mov si, NotFoundMsg
 	jmp short Error
 
 ReadNextCluster:
-	mov eax, dword[bp+dBLK]
+; one FAT entry is 4 bytes, a sector is 512 bytes, 512 / 4 = 128, log_2 128 = 7
+	mov eax, dword[byte bp+dBLK]
 	shr eax, 7
 	db 0x66, 0x05 ; add eax, imm32
 ..@FirstFATSectorPatch:
-	dd 0
+	dd 0          ; modified during initialisation
 
 	mov di, FATBuffer
-	call DiskRead
-	movzx bx, byte[bp+dBLK]
-	shl bl, 1
+	call near DiskRead
+
+	movzx bx, byte[byte bp+dBLK]
+	shl bl, 1 ; discard the top bit
 	shl bx, 1
-	mov eax, dword[di+bx]
-	cmp eax, 0x0ffffff8
-	cmc
+	mov eax, dword[di+bx] ; DI is preserved during DiskRead
+	and eax, 0x0fffffff ; fun fact: FAT32 uses only the bottom 28 bits, the top 4 are reserved
+	cmp eax, 0x0ffffff8 ; if the carry is set, it means "below", i. e. go to ReadCluster
+	cmc                 ; cmc flips the carry to make "set carry" mean "EOF"
 	jc short ..@Return
 
 ReadCluster:
 	mov dword[bp+dBLK], eax
 	db 0x66, 0x05 ; add eax, imm32
 ..@ClusterZeroLBAPatch:
-	dd 0
+	dd 0          ; modified during initialisation
 
 	db 0xBF, 0x00 ; mov di, imm16
 ..@ReadClusterDestinationPatch:
-	db FileBuffer>>8
+	db FileBuffer>>8 ; modified when loading the remaining 1.5K of this file
 	; fallthrough
 
 ; DiskRead: read a sector
@@ -254,52 +296,46 @@ ReadCluster:
 ;   EAX = LBA
 ;   DI  = output buffer
 DiskRead:
-	mov dword[bp+dDiskPacketLBA], eax
+	mov dword[byte bp+dDiskPacketLBA], eax
 	xor eax, eax
-	mov dword[bp+dDiskPacketLBA+4], eax
-	mov dword[bp+dDiskPacket], 0x10010
-	mov word[bp+dDiskPacketDestOffset], di
-	mov word[bp+dDiskPacketDestSegment], ax
+	mov dword[byte bp+dDiskPacketLBA+4], eax
+	mov dword[byte bp+dDiskPacket], 0x10010
+	mov word[byte bp+dDiskPacketDestOffset], di
+	mov word[byte bp+dDiskPacketDestSegment], ax
 	db 0xB2 ; mov dl, imm8
 ..@DiskNumberPatch:
-	db 0xFF
+	db 0xFF ; modified during initialisation
 	mov ah, 0x42
 	mov si, bp
 	int 0x13
 	jnc short ..@Return
 
+	; disk error handling - hex code provided by BIOS followed by "ERR"
 	mov al, ah
-	call PrintHexByte
-	mov si, DiskErrorMsg
+	shr al, 4
+	call near PrintHexDigit
+
+	mov al, ah
+	and al, 0x0f
+	call near PrintHexDigit
+
+	mov si, GenericErrorMsg
 	; fallthrough
 Error:
-	call PrintText
+	call near PrintText
 	; fallthrough
 Halt:
 	cli
 	hlt
 
-PrintHexByte:
-	push ax
-	shr al, 4
-	call PrintHexDigit
-	pop ax
-	and al, 0x0f
-	; fallthrough
 PrintHexDigit:
 	add al, '0'
 	cmp al, '9'
-	jbe PrintChar
+	jbe short PrintChar
 	add al, 'A' - '0' - 0x0A
 	; fallthrough
 PrintChar:
 	pusha
-	cmp al, 10
-	jne .skipcr
-	mov al, 13
-	call PrintChar
-	mov al, 10
-.skipcr:
 	xor bx, bx
 	mov ah, 0x0e
 	int 0x10
@@ -311,24 +347,23 @@ PrintText:
 	lodsb
 	or al, al
 	jz short ..@Return
-	call PrintChar
+	call near PrintChar
 	jmp short PrintText
 
 ; NULL terminators in filenames are only necessary for error handling
 StageZeroFilename:
-	db 'STAGENOTBIN', 0
+	db 'STAGE0  BIN', 0
 
 StageOneFilename:
 	db 'STAGE1  FRT', 0
-
-DiskErrorMsg:
-	db ' IOERR', 0
 
 NotFoundMsg:
 	db ' NOTFOUND', 0
 
 A20ErrorMsg:
-	db 'ERRA20', 0
+	db 'A20'
+GenericErrorMsg:
+	db 'ERR', 0
 
 EOFMessage:
 	db 'EOF!',0
@@ -366,7 +401,7 @@ GDT_End:
 LoadPartTwo:
 	mov byte[..@ReadClusterDestinationPatch], 0x7E
 .loop:
-	call ReadNextCluster
+	call near ReadNextCluster
 	jc short A20
 	add byte[..@ReadClusterDestinationPatch], 2
 	jmp short .loop
@@ -384,8 +419,11 @@ MBR_FREESPACE EQU 446 - ($ - $$)
 	times MBR_FREESPACE db 0
 
 PartitionTable:
-	dw MBR_FREESPACE ; these bytes will be overwritten by the partition table
-	dw REST_FREESPACE ; extracted by the build script to show the amount of free space available
+; The following 64 bytes will be overwritten by the partition table. In the first four of them are
+; stored the amounts of free space in each of the two code regions, which are calculated easily by
+; the assembler.
+	dw MBR_FREESPACE
+	dw REST_FREESPACE
 	times 4 db 0
 
 P1LBA:      dd 0
@@ -400,15 +438,15 @@ WORDBuffer:
 	dw 0xaa55
 
 A20:
-	call Check_A20
+	call near Check_A20
 	mov ax, 0x2401
 	int 0x15
-	call Check_A20
+	call near Check_A20
 
-	call KBC_SendCommand
+	call near KBC_SendCommand
 	db 0xAD
 
-	call KBC_SendCommand
+	call near KBC_SendCommand
 	db 0xD0
 
 .readwait:
@@ -419,22 +457,22 @@ A20:
 	in al, 0x60
 	push ax
 
-	call KBC_SendCommand
+	call near KBC_SendCommand
 	db 0xD1
 
 	pop ax
 	or al, 2
 	out 0x60, al
 
-	call KBC_SendCommand
+	call near KBC_SendCommand
 	db 0xAE
 
-	call Check_A20
+	call near Check_A20
 	in al, 0x92
 	or al, 2
 	and al, 0xfe
 	out 0x92, al
-	call Check_A20
+	call near Check_A20
 	mov si, A20ErrorMsg
 	jmp Error
 
@@ -511,7 +549,7 @@ BITS 32
 
 PM_Entry:
 	mov di, StageOneFilename
-	call CallRM
+	call near CallRM
 	dw FindFileRoot
 
 	mov dword[ebp+dLATEST], LATESTInitialValue
@@ -528,7 +566,7 @@ PM_Entry:
 
 ; Clear the return stack and invoke the INTERPRETer repeatedly
 QUIT:
-	call DOCOL
+	call near DOCOL
 .loop:
 	dd INTERPRET
 	dd BRANCH, .loop
@@ -540,8 +578,8 @@ DOCOL:
 	NEXT
 
 ; ( -- )
-; Stop executing the current word and continue executing its callee. Appended automatically by ; at
-; the end of every definition, but may be used explicitly, usually in conditionals
+; Return to executing its callee. Appended automatically by `;` at the end of all definitions, but
+; may be used explicitly, usually conditionally
 link_EXIT:
 	dw 0
 	db 4, 'EXIT'
@@ -880,7 +918,7 @@ link_COMMA:
 	db 1, ','
 COMMA:
 	pop eax
-	call doCOMMA
+	call near doCOMMA
 	NEXT
 
 doCOMMA:
@@ -1007,7 +1045,7 @@ link_KEY:
 	dw $-link_0BRANCH
 	db 3, 'KEY'
 KEY:
-	call doKEY
+	call near doKEY
 	push eax
 	NEXT
 
@@ -1022,7 +1060,7 @@ doKEY:
 	jb .nonextcluster
 
 	pushad
-	call CallRM
+	call near CallRM
 	dw ReadNextCluster
 	popad
 
@@ -1039,13 +1077,13 @@ link_WORD:
 	dw $-link_KEY
 	db 4, 'WORD'
 _WORD:
-	call doWORD
+	call near doWORD
 	push eax
 	push ecx
 	NEXT
 
 doWORD:
-	call doKEY
+	call near doKEY
 	or al, al
 	jz .eof
 	cmp al, ' '
@@ -1055,7 +1093,7 @@ doWORD:
 .loop:
 	mov [edx+ecx], al
 	inc ecx
-	call doKEY
+	call near doKEY
 	cmp al, ' '
 	ja .loop
 
@@ -1068,7 +1106,7 @@ doWORD:
 	ret
 .eof:
 	mov esi, EOFMessage
-	call CallRM
+	call near CallRM
 	dw Error
 
 link_NUMBER:
@@ -1077,7 +1115,7 @@ link_NUMBER:
 NUMBER:
 	pop ecx
 	pop eax
-	call doNUMBER
+	call near doNUMBER
 	push eax
 	push ecx
 	jmp short ..@NEXT
@@ -1137,7 +1175,7 @@ link_EMIT:
 	db 4, 'EMIT'
 EMIT:
 	pop eax
-	call CallRM
+	call near CallRM
 	dw PrintChar
 	jmp short ..@NEXT
 
@@ -1149,7 +1187,7 @@ link_LOAD:
 LOAD:
 	pop eax
 	pushad
-	call CallRM
+	call near CallRM
 	dw ReadCluster
 	popad
 ..@NEXT:
@@ -1164,7 +1202,7 @@ FILE:
 	pop eax
 	xchg edi, eax
 	pushad
-	call CallRM
+	call near CallRM
 	dw FindFile
 	popad
 	xchg edi, eax
@@ -1176,7 +1214,7 @@ link_CREATE:
 CREATE:
 	pop ecx
 	pop eax
-	call doCREATE
+	call near doCREATE
 	NEXT
 
 doCREATE:
@@ -1203,7 +1241,7 @@ link_FIND:
 FIND:
 	pop ecx
 	pop ebx
-	call doFIND
+	call near doFIND
 	push edx
 	NEXT
 
@@ -1247,9 +1285,9 @@ link_COLON:
 	dw $-link_FIND
 	db 1, ':'
 COLON:
-	call doWORD
+	call near doWORD
 	or cl, F_HIDDEN
-	call doCREATE
+	call near doCREATE
 
 	push edi
 	mov edi, [ebp+dHERE]
@@ -1270,7 +1308,7 @@ link_SEMICOLON:
 	db F_IMMED|1, ';'
 SEMICOLON:
 	mov eax, EXIT
-	call doCOMMA
+	call near doCOMMA
 
 	mov eax, [ebp+dLATEST]
 	and byte[eax+2], ~F_HIDDEN
@@ -1284,9 +1322,9 @@ link_INTERPRET:
 	dw $-link_SEMICOLON
 	db 9, 'INTERPRET'
 INTERPRET:
-	call doWORD
+	call near doWORD
 	mov ebx, eax
-	call doFIND
+	call near doFIND
 	or edx, edx
 	jz short .handle_number ; if the word isn't found, assume it's a number
 
@@ -1310,7 +1348,7 @@ INTERPRET:
 
 .handle_number:
 	mov eax, WORDBuffer
-	call doNUMBER
+	call near doNUMBER
 
 	or ecx, ecx
 	jnz .error
@@ -1321,11 +1359,11 @@ INTERPRET:
 
 	push eax
 	mov eax, LIT
-	call doCOMMA
+	call near doCOMMA
 	pop eax
 
 .comma_next:
-	call doCOMMA
+	call near doCOMMA
 	NEXT
 
 .interpret_number:
@@ -1334,7 +1372,7 @@ INTERPRET:
 
 .error:
 	mov di, WORDBuffer
-	call CallRM
+	call near CallRM
 	dw NotFoundError
 
 LATESTInitialValue EQU link_INTERPRET
