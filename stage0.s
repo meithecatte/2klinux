@@ -310,7 +310,7 @@ DiskRead:
 	int 0x13
 	jnc short ..@Return
 
-	; disk error handling - hex code provided by BIOS followed by "ERR"
+	; disk error handling
 	mov al, ah
 	shr al, 4
 	call near PrintHexDigit
@@ -319,12 +319,12 @@ DiskRead:
 	and al, 0x0f
 	call near PrintHexDigit
 
-	mov si, GenericErrorMsg
+	mov si, DiskErrorMsg
 	; fallthrough
 Error:
 	call near PrintText
-	; fallthrough
-Halt:
+	mov si, GenericErrorMsg
+	call near PrintText
 	cli
 	hlt
 
@@ -354,19 +354,20 @@ PrintText:
 StageZeroFilename:
 	db 'STAGE0  BIN', 0
 
-StageOneFilename:
-	db 'STAGE1  FRT', 0
-
 NotFoundMsg:
 	db ' NOTFOUND', 0
 
 A20ErrorMsg:
-	db 'A20'
+	db 'A20', 0
+
+DiskErrorMsg:
+	db ' DISK', 0
+
 GenericErrorMsg:
-	db 'ERR', 0
+	db ' ERROR', 0
 
 EOFMessage:
-	db 'EOF!',0
+	db 'EOF',0
 
 GDT:
 	dw GDT_End-GDT-1
@@ -504,7 +505,7 @@ BITS 16
 	push word GoPM
 	push ax
 	mov eax, cr0
-	and al, 0xfe
+	dec ax
 	mov cr0, eax
 	jmp 0:.rmode
 .rmode:
@@ -521,7 +522,7 @@ GoPM:
 	lgdt [GDT]
 	mov ebp, eax
 	mov eax, cr0
-	or al, 1
+	inc ax
 	mov cr0, eax
 	jmp Selector_Code32:.code32
 BITS 32
@@ -546,6 +547,9 @@ BITS 32
 %define F_IMMED   0x80
 %define F_HIDDEN  0x20
 %define F_LENMASK 0x1f
+
+StageOneFilename:
+	db 'STAGE1  FRT', 0
 
 PM_Entry:
 	mov di, StageOneFilename
@@ -1118,7 +1122,7 @@ NUMBER:
 	call near doNUMBER
 	push eax
 	push ecx
-	jmp short ..@NEXT
+	NEXT
 
 ; Parses a number
 ; Input:
@@ -1177,7 +1181,7 @@ EMIT:
 	pop eax
 	call near CallRM
 	dw PrintChar
-	jmp short ..@NEXT
+	NEXT
 
 ; ( cluster -- )
 ; A thin wrapper around ReadCluster
@@ -1190,7 +1194,6 @@ LOAD:
 	call near CallRM
 	dw ReadCluster
 	popad
-..@NEXT:
 	NEXT
 
 ; ( name-pointer -- )
@@ -1206,7 +1209,7 @@ FILE:
 	dw FindFile
 	popad
 	xchg edi, eax
-	jmp short ..@NEXT
+	NEXT
 
 link_CREATE:
 	dw $-link_FILE
@@ -1301,7 +1304,9 @@ COLON:
 
 	xor eax, eax
 	dec eax
-	jmp short ChangeState
+ChangeState:
+	mov [ebp+dSTATE], eax
+	NEXT
 
 link_SEMICOLON:
 	dw $-link_COLON
@@ -1314,13 +1319,8 @@ SEMICOLON:
 	and byte[eax+2], ~F_HIDDEN
 
 	xor eax, eax
-ChangeState:
-	mov [ebp+dSTATE], eax
-	NEXT
+	jmp short ChangeState
 
-link_INTERPRET:
-	dw $-link_SEMICOLON
-	db 9, 'INTERPRET'
 INTERPRET:
 	call near doWORD
 	mov ebx, eax
@@ -1375,7 +1375,7 @@ INTERPRET:
 	call near CallRM
 	dw NotFoundError
 
-LATESTInitialValue EQU link_INTERPRET
+LATESTInitialValue EQU link_SEMICOLON
 
 REST_FREESPACE EQU 2048 - ($ - $$)
 	times REST_FREESPACE db 0x00
