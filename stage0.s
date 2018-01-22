@@ -68,6 +68,15 @@ ORG 0x7C00
 %define BPBSectorsPerFAT   BPBBuffer+36
 %define BPBRootCluster     BPBBuffer+44
 
+%macro NEXT 0
+	lodsd
+	jmp eax
+%endmacro
+
+%define F_IMMED   0x80
+%define F_HIDDEN  0x20
+%define F_LENMASK 0x1f
+
 ; BIOS loads the first sector of the hard drive at 7C00 and, if the boot signature at offset 0x1FE
 ; matches, jumps here, in 16-bit Real Mode.
 BITS 16
@@ -416,6 +425,14 @@ KBC_SendCommand:
 	out 0x64, al
 	jmp si
 
+BITS 32
+DOCOL:
+	sub edi, 4
+	mov [edi], esi
+	pop esi
+	NEXT
+BITS 16
+
 MBR_FREESPACE EQU 446 - ($ - $$)
 	times MBR_FREESPACE db 0
 
@@ -539,14 +556,6 @@ BITS 32
 
 ; Here is where the actual Forth implementation starts. In contrast to jonesforth, we are using
 ; direct threaded code. Also, the link fields in the dictionary are relative.
-%macro NEXT 0
-	lodsd
-	jmp eax
-%endmacro
-
-%define F_IMMED   0x80
-%define F_HIDDEN  0x20
-%define F_LENMASK 0x1f
 
 StageOneFilename:
 	db 'STAGE1  FRT', 0
@@ -574,12 +583,6 @@ QUIT:
 .loop:
 	dd INTERPRET
 	dd BRANCH, .loop
-
-DOCOL:
-	sub edi, 4
-	mov [edi], esi
-	pop esi
-	NEXT
 
 ; ( -- )
 ; Return to executing its callee. Appended automatically by `;` at the end of all definitions, but
@@ -669,22 +672,8 @@ _DEC:
 	dec dword[esp]
 	NEXT
 
-link_4INC:
-	dw $-link_DEC
-	db 2, '4+'
-_4INC:
-	add dword[esp], 4
-	NEXT
-
-link_4DEC:
-	dw $-link_4INC
-	db 2, '4-'
-_4DEC:
-	sub dword[esp], 4
-	NEXT
-
 link_ADD:
-	dw $-link_4DEC
+	dw $-link_DEC
 	db 1, '+'
 _ADD:
 	pop eax
@@ -699,42 +688,56 @@ _SUB:
 	sub dword[esp], eax
 	NEXT
 
-link_MUL:
+link_SMDIVREM:
 	dw $-link_SUB
-	db 1, '*'
-_MUL:
+	db 6, 'SM/REM'
+SMDIVREM:
 	pop ecx
+	pop edx
 	pop eax
-	imul ecx
-	push eax
-	NEXT
-
-link_DIVMOD:
-	dw $-link_MUL
-	db 4, '/MOD'
-DIVMOD:
-	pop ecx
-	pop eax
-	cdq
 	idiv ecx
 	push edx
 	push eax
 	NEXT
 
-link_UDIVMOD:
-	dw $-link_DIVMOD
-	db 5, 'U/MOD'
-UDIVMOD:
+link_UMDIVMOD:
+	dw $-link_SMDIVREM
+	db 6, 'UM/MOD'
+UMDIVMOD:
 	pop ecx
+	pop edx
 	pop eax
-	xor edx, edx
 	div ecx
 	push edx
 	push eax
 	NEXT
 
+link_MMUL:
+	dw $-link_UMDIVMOD
+	db 2, 'M*'
+MMUL:
+	pop ebx
+	pop eax
+	cdq
+	imul ebx
+	push eax
+	push edx
+	NEXT
+
+link_UMMUL:
+	dw $-link_MMUL
+	db 3, 'UM*'
+UMMUL:
+	pop ebx
+	pop eax
+	xor edx, edx
+	mul ebx
+	push eax
+	push edx
+	NEXT
+
 link_EQ:
-	dw $-link_UDIVMOD
+	dw $-link_UMMUL
 	db 1, '='
 EQ:
 	pop ecx

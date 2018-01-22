@@ -15,7 +15,6 @@
 
 : NL 10 ;
 : BL 32 ;
-: CR NL EMIT ;
 
 : FALSE 0 ;
 : TRUE -1 ;
@@ -34,7 +33,8 @@
 : [ FALSE STATE ! ; IMMEDIATE
 : ] TRUE STATE ! ;
 
-: \ [ HERE @ ] KEY NL = 0BRANCH [ , ] ; IMMEDIATE
+: KEY-NOEOF KEY ;
+: \ [ HERE @ ] KEY-NOEOF NL = 0BRANCH [ , ] ; IMMEDIATE
 
 \ ---------- AN EXPLANATION OF WHAT HAS JUST HAPPENED --------------------------------------------
 
@@ -57,8 +57,7 @@
 \ STATE - FALSE if interpreting words, TRUE when compiling
 \ LENGTH - the number of bytes left in the currently open file. When this goes down to 0, KEY will
 \          return zeroes indefinitely. Since binary files are not expected, this should be handled
-\          appropriately by anything using KEY directly. The definition of \ will be extended when
-\          proper control flow becomes possible.
+\          appropriately by anything using KEY directly.
 
 \ Below, the constants describing the flags field of a dictionary entry are defined. You should go
 \ to stage0.s for more information if their meaning is unclear.
@@ -66,9 +65,8 @@
 \ ROOT is a word that LOADs the first cluster of the root directory, and because it depends on the
 \ the address of BPBRootCluster, it's also defined here.
 
-\ Below, two character constants are defined.  BL (BLank) will return the ASCII value of the space
-\ character, and NL (for New Line) - the newline character.  These can be used with EMIT to output
-\ characters on screen, as demonstated by CR.
+\ Below, two character constants are defined. BL stands for BLank, and it contains the ASCII value
+\ of the space character, while NL stands for New Line, and contains the newline character.
 
 \ In Forth, FALSE is represented by a cell with all bits unset, and TRUE - by a cell with all bits
 \ set, which corresponds with the two's complement representation of -1. This representation makes
@@ -99,11 +97,14 @@
 \ they were, this word would be defined as `: \ BEGIN KEY NL = UNTIL ; IMMEDIATE`, which is surely
 \ easier to understand - skip characters until you encounter a newline.
 
+\ You might notice how a seemingly useless wrapper around KEY is declared. KEY-NOEOF will handle a
+\ spurious EOF, when it is replaced with IS (as per the description of LENGTH above).
+
 \ This word is marked as immediate to make comments work correctly in compile mode.  The way BEGIN
 \ and UNTIL are replaced in that definition should become clear when we define control flow words,
 \ but some simpler words will come first.
 
-\ ---------- COMPARISONS AND NEGATE --------------------------------------------------------------
+\ ---------- THE MOST BASIC OF THE WORDS ---------------------------------------------------------
 
 \ Because of space restriction of stage0.asm, only some comparisons are primitive. The rest can be
 \ accomplished by inverting the result of a different comparison.
@@ -123,7 +124,20 @@
 \ all the bits and add one to compute the additive inverse.
 : NEGATE INVERT 1+ ;
 
+\ CHAR will parse a word and give you its first character.
 : CHAR WORD DROP C@ ;
+
+\ 2* and 2/ are separate words to make it use the shift instructions of the processor.
+: 2* 1 LSHIFT ;
+
+\ 2/ is an arithmetic shift, and RSHIFT is a logical shift, so we have to preserve the top bit.
+: 2/ DUP 1 RSHIFT SWAP $80000000 AND OR ;
+
+\ CELLS turns a number of cells into a number of bytes
+: CELLS 2 LSHIFT ;
+: CELL+ 4 + ;
+: NIP SWAP DROP ;
+: TUCK SWAP OVER ;
 
 \ ---------- THE UNINTUITIVE IMPLEMENTATION OF LITERAL -------------------------------------------
 
@@ -143,7 +157,7 @@
 \ compiled representation of this word (keep in mind that ['] does its work while compiling):
 
 \ +--+--+--+--+--+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-\ | call DOCOL   | LIT   | LIT   |   ,   |   ,   | EXIT  |
+\ |  call DOCOL  |  LIT  |  LIT  |   ,   |   ,   | EXIT  |
 \ +--+--+--+--+--+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 
 \ Therefore, one can implement LITERAL as follows, with the only drawback being unintuitiveness.
@@ -177,8 +191,13 @@
 \ To create an implementation of SET-HANDLER that works like that, you should look into `POSTPONE`
 \ and `IMMEDIATE`, probably combined with `LITERAL` or `[']`.
 
-\ Important: add a check for non-existent words after implementing all words necessary to do so.
-: ' WORD FIND >CFA ;
+\ MUST-FIND will try to FIND a word in a dictionary, but it will ABORT instead of returning 0 when
+\ a word isn't found. This implementation will be replaced later using IS.
+: MUST-FIND FIND ;
+
+\ With >CFA available, implementing ' is a piece of cake: get a word, find it in a dictionary, and
+\ turn it into an execution token.
+: ' WORD MUST-FIND >CFA ;
 
 \ ---------- POOR MAN'S POSTPONE -----------------------------------------------------------------
 
@@ -188,11 +207,8 @@
 \ : ENDIF POSTPONE THEN ; IMMEDIATE
 
 \ That way, THEN will be executed when ENDIF is used, instead of the moment ENDIF is defined. This
-\ can also be used with non-immediate words, for example
-\ : CELL+ POSTPONE 4+ ; IMMEDIATE
-\ will not add the overhead of one more call in the callstack during execution, compared to
-\ : CELL+ 4+ ;
-\ You can do much more than these kinds of "aliases", but this is the simplest way to explain it. 
+\ can also be used with non-immediate words, if such needs arise. This is a small fraction of what
+\ POSTPONE can do, but I think this is the simplest way to explain it.
 
 \ However, to implement POSTPONE you would have to detect whether a word is immediate, and compile
 \ it differently based on that information. To avoid circular dependencies, we implement [COMPILE]
@@ -205,115 +221,224 @@
 \ COMPILE DROP is equivalent to ['] DROP ,
 : COMPILE R> \ get a pointer to the execution token of the word after COMPILE
   DUP @ ,    \ compile that execution token
-  4+         \ move the pointer so that the word that has just been compiled won't get executed
+  CELL+      \ move the pointer so that the word that has just been compiled won't get executed
   >R         \ put the pointer back on the return stack
 ;
 
-\ ['] SOME-WORD is equivalent to [ ' SOME-WORD ] LITERAL
-: ['] ' [COMPILE] LITERAL ; IMMEDIATE
+\ ---------- MAKING USE OF LITERAL - ['] and [CHAR] ----------------------------------------------
 
-\ [CHAR] X is equivalent to [ CHAR X ] LITERAL
+\ ' and CHAR are great, but sometimes you would want them to work differently in compile mode. You
+\ are thinking about their wrapped-in-square-bracked counterparts. They both work very similarily:
+\ ['] SOME-WORD is equivalent to [ ' SOME-WORD ] LITERAL, and [CHAR] X is equivalent to [ CHAR X ]
+\ LITERAL. For any such "macro" you just need to POSTPONE everything except the stuff in brackets,
+\ or if you don't have POSTPONE, think about the immediancy of the words and use [COMPILE], or its
+\ bracketless equivalent.
+
+: [']    '    [COMPILE] LITERAL ; IMMEDIATE
 : [CHAR] CHAR [COMPILE] LITERAL ; IMMEDIATE
 
-\ With all of that up our sleeves we can pursue defining control flow words, starting with IF and
-\ THEN.
+\ ---------- CONTROL FLOW - IF ELSE THEN ---------------------------------------------------------
 
-\ before IF inside THEN after
-\ compiles to
+\ Let's look at how you can implement a conditional using BRANCH and 0BRANCH:
 
-\ before 0BRANCH ptr inside after
-\                 \_________^
+\ +--+--+--+--+-+-+-+-+- - - - -+
+\ |  0BRANCH  | ptr1  | if-part | after
+\ +--+--+--+--+-+ | +-+- - - - -+   ^
+\                 \_________________/
 
-: IF
+\                                                ___________________
+\                                               /                   \
+\ +--+--+--+--+-+-+-+-+- - - - -+--+--+--+--+-+ | +-+- - - - - -+   V
+\ |  0BRANCH  | ptr1  | if-part |  BRANCH   | ptr2  | else-part | after
+\ +--+--+--+--+-+ | +-+- - - - -+--+--+--+--+-+-+-+-+  ^  - - - +
+\                 \____________________________________/
+
+\ To control the branch destinations, we can use the stack. You should keep in mind that all of it
+\ happens during compilation, so it will not interfere with the stack usage during execution.
+
+\ IF: compile a conditional branch and push the address of the destination pointer on the stack.
+: IF              \ ( -- ptr1-addr )
   COMPILE 0BRANCH
-  HERE @ \ save the location of the branch destination word on the data stack DURING COMPILATION
-  0 , \ compile a dummy destination
+  HERE @          \ save the address
+  0 ,             \ compile a dummy ptr1
 ; IMMEDIATE
 
-: THEN \ ( ptr-addr )
-  HERE @ \ ( ptr-addr ptr-val )
+\ ELSE: compile an unconditional branch and resolve the previous, conditional branch.
+: ELSE            \ ( ptr1-addr -- ptr2-addr )
+  COMPILE BRANCH
+  HERE @          \ ( ptr1-addr ptr2-addr )
+  0 ,             \ compile a dummy ptr2
+  HERE @          \ ( ptr1-addr ptr2-addr ptr1-val )
+  ROT !           \ ( ptr2-addr )
+; IMMEDIATE
+
+\ THEN: resolve the previous branch.
+: THEN            \ ( ptr-addr -- )
+  HERE @          \ ( ptr-addr ptr-val )
   SWAP !
 ; IMMEDIATE
 
-\ before IF true ELSE false THEN after
-\ compiles to
+\ ---------- MAKING USE OF CONDITIONALS: EMIT ----------------------------------------------------
 
-\ before 0BRANCH ptr1 true BRANCH ptr2 false after
-\                 \________________|___^     ^
-\                                  T         |
-\                                  \_________/
+\ Now that we can use IF, let's implement a few pretty important words that need IF to work.
 
-: ELSE \ ( ptr1-addr )
-  COMPILE BRANCH
-  HERE @ \ ( ptr1-addr ptr2-addr )
-  0 ,    \ compile a dummy ptr2
-  HERE @ \ ( ptr1-addr ptr2-addr ptr1-val )
-  ROT !
-; IMMEDIATE
+\ The underlying assembly implementation uses BIOS's teletype output interrupt, which uses CRLF as
+\ the line ending - this overrides the implementation of EMIT to convert LF to CRLF on the fly.
+: EMIT
+  DUP NL = IF
+    13 EMIT
+  THEN
+  EMIT
+;
+
+\ ---------- HIDING WORDS ------------------------------------------------------------------------
+
+\ Sometimes a word is only needed to implement something bigger, and should not be used after it's
+\ used the few times it's designed for. This Forth provides HIDE just for these situations.
 
 \ HIDDEN takes an address of a dictionary entry and toggles its hidden flag
 : HIDDEN >FLAGS F_HIDDEN SWAP CXOR! ;
-: HIDDEN? >FLAGS C@ F_HIDDEN AND 0<> ;
-: HIDE WORD FIND HIDDEN ;
 
-\ Used for checking whether a dictionary entry is marked immediate
+: HIDE WORD MUST-FIND HIDDEN ;
+
+\ ---------- INSPECTING THE FLAGS FIELD ----------------------------------------------------------
+
+\ Since they are about to get useful, let's implement words that will tell you if a flag is set in
+\ a dictionary entry.
+
+: HIDDEN? >FLAGS C@ F_HIDDEN AND 0<> ;
 : IMMEDIATE? >FLAGS C@ F_IMMED AND 0<> ;
 
+\ ---------- MAKING USE OF CONDITIONALS: IMPLEMENTING A PROPER POSTPONE --------------------------
+
+\ POSTPONE's job is simple: if a word is immediate, just compile it as if it wasn't. Otherwise, it
+\ should be equivalent to COMPILE. This implementation does just that.
 : POSTPONE
-  WORD FIND DUP IMMEDIATE? INVERT IF
+  WORD MUST-FIND DUP IMMEDIATE? INVERT IF
     COMPILE COMPILE
   THEN
   >CFA ,
 ; IMMEDIATE
 
+\ Since we have POSTPONE, we don't need those.
 HIDE COMPILE
 HIDE [COMPILE]
 
+\ ---------- MAKING USE OF CONDITIONALS: ?DUP ----------------------------------------------------
+
+\ ?DUP is a useful word if you want to act on a value if it's non-zero. Compare:
+\ DUP IF ... ELSE DROP THEN
+\ ?DUP IF ... THEN
 : ?DUP DUP IF DUP THEN ;
 
-\ before BEGIN inside AGAIN after
-\ compiles to
+\ ---------- MAKING USE OF CONDITIONALS: S>D -----------------------------------------------------
 
-\ before inside BRANCH ptr after
-\        ^______________/
+\ The way you extend a number to two cells depends on its sign:
+: S>D
+  DUP 0< IF
+    -1
+  ELSE
+    0
+  THEN
+;
 
+\ While we're at it, let's define D>S. Since
+: D>S DROP ;
+
+\ ---------- DEFINING MULTIPLICATION AND DIVISION IN TERMS OF S>D AND D>S ------------------------
+
+\ To save space, * and /MOD are not primitive, and are instead implemented using SM/REM or M*
+: */MOD >R M* R> SM/REM ;
+: */ */MOD NIP ;
+: * M* D>S ;
+
+: /MOD >R S>D R> SM/REM ;
+: / /MOD NIP ;
+: MOD /MOD DROP ;
+
+\ x86 uses symmetric division, so we need to implement floored ourselves
+: FM/MOD
+  DUP >R     \ save the divisor
+  SM/REM
+  OVER DUP 0<> SWAP 0< R@ 0< XOR AND IF \ if the remainder and the divisor have different signs,
+    1- SWAP R> + SWAP  \ decrement the quotient and add the divisor to the quotient
+  ELSE
+    RDROP
+  THEN
+;
+
+\ ---------- BASIC LOOPING -----------------------------------------------------------------------
+
+\ The most basic loop in Forth is made using BEGIN and UNTIL. This code example will print numbers
+\ from 1 to 5:
+
+\ 0 BEGIN 1+ . DUP 5 > UNTIL
+
+\ UNTIL jumps to the corresponding BEGIN unless TRUE is found on the stack. When compiled, a BEGIN
+\ UNTIL loop will look like this:
+
+\ +- - - - - - -+--+--+--+--+-+-+-+-+
+\ | inside-loop |  0BRANCH  |  ptr  |
+\ +- ^ - - - - -+--+--+--+--+-+ | +-+
+\    \__________________________/
+
+\ BEGIN: save a branch destination for later consumption
 : BEGIN HERE @ ; IMMEDIATE
-: AGAIN POSTPONE BRANCH , ; IMMEDIATE
 
-\ before BEGIN inside UNTIL after
-\ compiles to
-
-\ before inside 0BRANCH ptr after
-\        ^_______________/
-
+\ UNTIL: compile a conditional branch using the destination left on the stack by BEGIN
 : UNTIL POSTPONE 0BRANCH , ; IMMEDIATE
 
-\ before BEGIN condition WHILE inside REPEAT after
-\ compiles to
+\ A similar loop variant is BEGIN AGAIN - an infinite loop, unless stopped by EXIT
+: AGAIN POSTPONE BRANCH , ; IMMEDIATE
 
-\ before condition 0BRANCH ptr1 inside BRANCH ptr2 after
-\        ^__________________|__________________/   ^
-\                           \______________________/
+\ More advanced is the BEGIN WHILE REPEAT loop - run the part between BEGIN and WHILE, and if that
+\ leaves TRUE on the stack, run the part between WHILE and REPEAT, then loop back to the beginning
+\ to repeat the whole process. This is how it looks compiled:
 
-: WHILE
+\      _____________________________________________________
+\     /                                                     \
+\ +-  V  - - -+--+--+--+--+-+-+-+-+- - - - -+--+--+--+--+-+ | +-+
+\ | condition |  0BRANCH  | ptr1  | inside  |  BRANCH   | ptr2  | after
+\ +- - - - - -+--+--+--+--+-+ | +-+- - - - -+--+--+--+--+-+-+-+-+  ^
+\                             \____________________________________/
+
+: WHILE \ ( ptr2-val -- ptr2-val ptr1-addr )
   POSTPONE 0BRANCH
-  HERE @
-  0 ,
+  HERE @           \ ( ptr2-val ptr1-addr )
+  0 ,              \ a dummy destination
 ; IMMEDIATE
 
-: REPEAT \ ( ptr2-val ptr1-addr )
+: REPEAT \ ( ptr2-val ptr1-addr -- )
   POSTPONE BRANCH
   SWAP , \ ( ptr1-addr )
-  HERE @
+  HERE @ \ resolve ptr1
   SWAP !
 ; IMMEDIATE
 
-\ CASE                         ( push 0 during compilation to count the IFs )
+\ ---------- CASE STATEMENTS ---------------------------------------------------------------------
+
+\ Many programmers are familiar with `switch` from C-like languages. In Forth, one would write:
+
+\ : SAY-NUMBER
+\   CASE
+\     1 OF ." ONE" ENDOF
+\     2 OF ." TWO" ENDOF
+\     3 OF ." THREE" ENDOF
+\     ." WE DIDN'T LEARN HOW TO COUNT TO " DUP . ." YET :("
+\   ENDCASE CR
+\ ;
+
+\ This could obviously be also achieved using IFs, and in fact, that's exactly what happens:
+
+\ CASE
 \ test1 OF ... ENDOF           test1 OVER = IF DROP ... ELSE
 \ test2 OF ... ENDOF           test2 OVER = IF DROP ... ELSE
 \ test3 OF ... ENDOF           test3 OVER = IF DROP ... ELSE
 \ default-case                 default-case
 \ ENDCASE                      DROP THEN THEN THEN
+
+\ To count how many THENs ENDCASE needs to POSTPONE, CASE pushes a 0 on the stack. Since IF leaves
+\ a branch pointer on the stack, the 0 will only be on the top when all IFs have matching THENs.
 
 : CASE 0 ; IMMEDIATE
 : OF
@@ -334,28 +459,33 @@ HIDE [COMPILE]
   WHILE
     POSTPONE THEN
   REPEAT
-  DROP
+  DROP \ drop the 0
 ; IMMEDIATE
 
-\ this is enough control structures to define parenthesis comments
+\ ---------- PARENTHESIS COMMENTS ----------------------------------------------------------------
+
+\ Defining parenthesis comments works particularily nicely with CASE. Note how this implementation
+\ allows nesting parenthesis by keeping track of the nesting level.
+
 : (                    \ ( -- )
-  1                    \ allow nested comments by storing the depth
-  BEGIN KEY            \ ( depth key )
+  1                    \ initial depth
+  BEGIN KEY-NOEOF      \ ( depth key )
     CASE
       [CHAR] ( OF 1+ ENDOF
       [CHAR] ) OF 1- ENDOF
-    ENDCASE
-  DUP 0= UNTIL         \ ( depth )
-  DROP                 \ ( )
+    ENDCASE            \ no default case is OK too!
+    DUP 0=
+  UNTIL                \ ( depth )
+  DROP
 ; IMMEDIATE
 
-: CELLS ( CELLS turns a number of cells into a number of bytes ) 2 LSHIFT ;
-: CELL+ 4+ ;
-: NIP ( a b -- b ) SWAP DROP ;
-: TUCK ( b a -- a b a ) SWAP OVER ;
+( ---------- HAVING FUN WITH THE NEW TOY: STACK EFFECT COMMENTS! ------------------------------- )
+
+( yes, I do indeed agree that my definition of fun is a weird one )
+
 : PICK ( x(u) ... x(1) x(0) u -- x(u) ... x(1) x(0) x(u) )
-  CELLS SP@ + ( x(u) ... x(1) x(0) addrof-x(u-1) )
-  4+ @
+  1+ CELLS SP@ + ( x(u) ... x(1) x(0) addrof-x(u) )
+  @
 ;
 
 : 2RDROP ( R: x x retaddr -- R: retaddr ) R> RDROP RDROP >R ;
@@ -389,12 +519,6 @@ HIDE [COMPILE]
   2SWAP
 ;
 
-( The primitive word /MOD leaves both the remainder and the quotient on the stack, in that order
-  (on x86, the idiv instruction calculates both anyway). Now we can define / and MOD in terms of
-  /MOD and stack manipulation words. )
-: / /MOD NIP ;
-: MOD /MOD DROP ;
-
 : C, ( char -- ) HERE @ TUCK ! 1+ HERE ! ;
 
 : WITHIN ( c a b -- within? ) OVER - >R - R> U< ;
@@ -404,27 +528,32 @@ HIDE [COMPILE]
   THEN
 ;
 
-: MIN MINMAX DROP ;
-: MAX MINMAX NIP ;
+: MIN ( a b -- min(a, b) ) MINMAX DROP ;
+: MAX ( a b -- max(a, b) ) MINMAX NIP ;
 
 : DEPTH ( -- n )
-  S0 SP@ - 4- 2 RSHIFT
+  S0 SP@ - 1 CELLS - 2 RSHIFT
 ;
+
+( ---------- STRING LITERALS ------------------------------------------------------------------- )
 
 ( string literals are compiled as follows:
-    LITSTRING length string-itself rest-of-code )
+
+ +--+--+--+--+---+---+---+---+- - - - - - - -+
+ | LITSTRING | string-length | string-itself |
+ +--+--+--+--+---+---+---+---+- - - - - - - -+ )
+
 : LITSTRING
-  R@ 4+ ( string-address )
-  R@ @  ( string-address string-length )
-  R> OVER + 4+ >R ( move the return address )
+  R@ CELL+           ( string-address )
+  R@ @               ( string-address string-length )
+  R> OVER + CELL+ >R ( move the return address )
 ;
 
-( a perfect example of HIDE )
 : COMPILE-STRING-CHARACTERS
   ( a helper function used to compile characters until a " )
-  KEY DROP ( skip one character as the word separator )
+  KEY-NOEOF DROP ( skip one character as the word separator )
   BEGIN
-    KEY DUP [CHAR] " <>
+    KEY-NOEOF DUP [CHAR] " <>
   WHILE
     C,
   REPEAT
@@ -440,7 +569,7 @@ HIDE [COMPILE]
     0 ,    ( compile a dummy length )
     COMPILE-STRING-CHARACTERS
     DUP    ( length-addr length-addr )
-    4+     ( length-addr first-char-addr )
+    CELL+  ( length-addr first-char-addr )
     HERE @ ( length-addr first-char-addr byte-after-last-char-addr )
     SWAP - ( length-addr length )
     SWAP ! ( )
@@ -456,47 +585,51 @@ HIDE [COMPILE]
 
 HIDE COMPILE-STRING-CHARACTERS
 
-(
-  we can now define DO, ?DO, LOOP, +LOOP and LEAVE. It would be relatively simple if not for LEAVE.
-  The plan for LEAVE is the following: at first, compile it as 2RDROP BRANCH LEAVE. When LOOP or
-  +LOOP is executed, it looks for any instances of BRANCH or 0BRANCH with LEAVE as the destination
-  and replace it with the appropriate address. The loop control parameters are stored on the return
-  stack, with the counter on top.
+( ---------- COUNTED LOOPS --------------------------------------------------------------------- )
+
+( We can now define DO, ?DO, LOOP, +LOOP and LEAVE. It would be relatively simple if LEAVE did not
+  exist, but the plan is: at first, compile LEAVE as BRANCH LEAVE. LOOP (or +LOOP) will then go to
+  the beginning of the loop and scan for branches, conditional or not, going to LEAVE, and replace
+  them with a proper destination.
+
+  The loop control variables are stored on the return stack, with the counter on top and the limit
+  on the bottom.
 
   DO -> 2>R loop-inside
-     *      ^
+            ^ the ending branch jumps here
+        ^ LOOP starts scanning here
+
   ?DO -> (?DO) 0BRANCH LEAVE loop-inside
-               *             ^
+                             ^ the ending branch jumps here
+                       ^ LOOP starts scanning here
 )
 
-: (?DO)
+: (?DO)    ( limit counter R: retaddr -- R: limit counter retaddr )
   R>       ( limit counter retaddr )
   -ROT     ( retaddr limit counter )
   2DUP 2>R ( retaddr limit counter R: limit counter )
   <>       ( retaddr should-loop-at-all? )
-  SWAP >R
+  SWAP >R  ( should-loop-at-all? R: limit counter retaddr )
 ;
 
-(
-  This means that LOOP should look for BRANCH LEAVE two cells before the actual pointer. This will
-  handle ?DO correctly without breaking DO (the word before 2>R would have to be BRANCH, which
-  would make no sense). * shows where LOOP will start correcting branches, and ^ shows the pointer
-  passed to LOOP and the destination of the branch at the end of the loop.
+( This means that LOOP should look for LEAVE one cells before the actual loop body. That will make
+  it handle ?DO correctly, and because the execution token of 2>R is not the same as the execution
+  token of LEAVE, this will not break DO.
 
    LOOP ->  (LOOP) 0BRANCH loop-beginning 2RDROP
   +LOOP -> (+LOOP) 0BRANCH loop-beginning 2RDROP
                                           ^ LEAVE jumps here
 )
 
-: (LOOP)  ( R: limit old-counter retaddr )
-  R> 2R>        ( retaddr limit old-counter )
-  1+            ( retaddr limit new-counter )
-  2DUP 2>R      ( retaddr limit new-counter R: limit new-counter )
-  =             ( retaddr should-stop-looping? R: limit new-counter )
-  SWAP >R
+: (LOOP)   ( R: limit old-counter retaddr )
+  R> 2R>   ( retaddr limit old-counter )
+  1+       ( retaddr limit new-counter )
+  2DUP 2>R ( retaddr limit new-counter R: limit new-counter )
+  =        ( retaddr should-stop-looping? R: limit new-counter )
+  SWAP >R  ( should-stop-looping? R: limit new-counter retaddr )
 ;
 
-: (+LOOP)   ( diff R: limit old-counter retaddr )
+: (+LOOP)         ( diff R: limit old-counter retaddr )
   R>              ( diff retaddr )
   SWAP            ( retaddr diff )
   2R>             ( retaddr diff limit old-counter )
@@ -536,20 +669,21 @@ HIDE COMPILE-STRING-CHARACTERS
   DUP ,
   HERE @ ( loop-beginning loop-end )
   POSTPONE UNLOOP
-  SWAP 4- ( loop-end curr-address )
+  SWAP 1 CELLS - ( loop-end curr-address )
   BEGIN
     DUP @ ['] LEAVE = IF
       ( loop-end curr-address )
-      DUP 4- @ ( loop-end curr-address word-before )
+      ( make sure it's preceded by a branch! )
+      DUP 1 CELLS - @ ( loop-end curr-address word-before )
       DUP ['] BRANCH = SWAP ['] 0BRANCH = OR IF
         2DUP ( loop-end curr-address loop-end curr-address ) !
       THEN
     THEN
 
     DUP @ CASE
-      ['] LIT OF 8 + ENDOF
-      ['] LITSTRING OF 4+ DUP @ 4+ + ENDOF
-      SWAP 4+ SWAP
+      ['] LIT OF 2 CELLS + ENDOF
+      ['] LITSTRING OF CELL+ DUP @ CELL+ + ENDOF
+      SWAP CELL+ SWAP
     ENDCASE
 
     2DUP <=
@@ -572,11 +706,12 @@ HIDE COMPILE-STRING-CHARACTERS
 : J     ( -- n ) RP@ 12 + @ ;
 : J-MAX ( -- n ) RP@ 16 + @ ;
 
+HIDE (?DO)
 HIDE (LOOP)
 HIDE (+LOOP)
 HIDE SOME-LOOP
 
-: TYPE ( c-addr u -- ) 0 MAX 0 ?DO DUP C@ EMIT 1+ LOOP DROP ;
+: TYPE ( c-addr u -- ) 0 ?DO DUP C@ EMIT 1+ LOOP DROP ;
 
 : ."
   POSTPONE S"
@@ -607,6 +742,7 @@ HIDE NEXT,
 : ABS DUP 0< IF NEGATE THEN ;
 
 : SPACE BL EMIT ;
+: CR NL EMIT ;
 : SPACES
   0 MAX
   0 ?DO SPACE LOOP
@@ -664,7 +800,10 @@ HIDE NEXT,
 ;
 
 : B.R ( u width base -- )
-  ROT OVER U/MOD ( width base rem quot )
+  ROT ( width base u )
+  0   ( width base ud )
+  2 PICK ( width base ud base )
+  UM/MOD ( width base rem quot )
   ?DUP IF
     ( width base rem quot )
     SWAP >R ( width base quot R: rem )
@@ -797,7 +936,7 @@ CREATE BUFFER 12 ALLOT
 HIDE BUFFER
 HIDE LENGTH-CHECK
 
-: COUNTED> ( counted-string -- string strlen ) DUP 1+ SWAP C@ ;
+: COUNT ( counted-string -- string strlen ) DUP 1+ SWAP C@ ;
 
 : CONCLUDE"
   POSTPONE S"
@@ -813,5 +952,6 @@ HIDE LENGTH-CHECK
   DROP
 ;
 
+." "
 ." 2K Linux" CR
 CONCLUDE" TEST.FRT"
