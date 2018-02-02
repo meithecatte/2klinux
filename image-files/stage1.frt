@@ -402,15 +402,16 @@ HIDE [COMPILE]
 \ +- - - - - -+--+--+--+--+-+ | +-+- - - - -+--+--+--+--+-+-+-+-+  ^
 \                             \____________________________________/
 
-: WHILE \ ( ptr2-val -- ptr2-val ptr1-addr )
+: WHILE \ ( ptr2-val -- ptr1-addr ptr2-val )
   POSTPONE 0BRANCH
   HERE @           \ ( ptr2-val ptr1-addr )
   0 ,              \ a dummy destination
+  SWAP
 ; IMMEDIATE
 
-: REPEAT \ ( ptr2-val ptr1-addr -- )
+: REPEAT \ ( ptr1-addr ptr2-val -- )
   POSTPONE BRANCH
-  SWAP , \ ( ptr1-addr )
+  ,      \ ( ptr1-addr )
   HERE @ \ resolve ptr1
   SWAP !
 ; IMMEDIATE
@@ -504,12 +505,16 @@ HIDE [COMPILE]
 ;
 
 : 2DROP ( a b -- ) DROP DROP ;
-: 2DUP ( a b -- a b a b ) OVER ( a b a ) OVER ( a b a b ) ;
+: 2DUP ( a b -- a b a b )
+  OVER ( a b a )
+  OVER ( a b a b )
+;
+
 : 2SWAP ( a b c d -- c d a b )
-  >R ( a b c R: d )
-  -ROT ( c a b R: d )
-  R> ( c a b d )
-  -ROT ( c d a b )
+  >R    ( a b c R: d )
+  -ROT  ( c a b R: d )
+  R>    ( c a b d )
+  -ROT  ( c d a b )
 ;
 
 : 2OVER ( a b c d -- a b c d a b )
@@ -521,7 +526,15 @@ HIDE [COMPILE]
 
 : C, ( char -- ) HERE @ TUCK ! 1+ HERE ! ;
 
-: WITHIN ( c a b -- within? ) OVER - >R - R> U< ;
+: WITHIN ( c a b -- within? )
+  OVER   ( c a b a )
+  -      ( c a range-size )
+  >R     ( c a R: range-size )
+  -      ( distance-from-beginning-of-the-range R: range-size )
+  R>     ( distance-from-beginning-of-the-range range-size )
+  U<     ( within? )
+;
+
 : MINMAX ( a b -- min max )
   2DUP > IF
     SWAP
@@ -722,14 +735,24 @@ HIDE SOME-LOOP
   THEN
 ; IMMEDIATE
 
+: COUNT ( counted-string -- string strlen ) DUP 1+ SWAP C@ ;
+
 : PUSH-IMM32, $68 C, , ;
 : NEXT, $AD C, $FF C, $E0 C, ;
+: REL! ( value addr -- ) DUP >R CELL+ - R> ! ;
+
 : ALLOT HERE +! ;
 : CREATE
   WORD
   CREATE-BARE
   HERE @ 8 + PUSH-IMM32, NEXT,
 ;
+
+: MKNOP WORD CREATE-BARE NEXT, ;
+
+MKNOP ALIGN
+MKNOP ALIGNED
+
 : CONSTANT WORD CREATE-BARE PUSH-IMM32, NEXT, ;
 : VARIABLE CREATE 4 ALLOT ;
 HIDE PUSH-IMM32,
@@ -936,8 +959,6 @@ CREATE BUFFER 12 ALLOT
 HIDE BUFFER
 HIDE LENGTH-CHECK
 
-: COUNT ( counted-string -- string strlen ) DUP 1+ SWAP C@ ;
-
 : CONCLUDE"
   POSTPONE S"
   ROOT
@@ -952,6 +973,66 @@ HIDE LENGTH-CHECK
   DROP
 ;
 
-." "
+: 2@ DUP CELL+ @ SWAP @ ;
+: 2! SWAP OVER ! CELL+ ! ;
+: 2R@ R> 2R> 2DUP 2>R ROT >R ;
+: CHAR+ 1+ ;
+MKNOP CHARS
+: MOVE
+  >R
+  2DUP < IF
+    0 R> 1- ?DO
+      OVER I + C@
+      OVER I + C!
+    -1 +LOOP
+    2DROP
+  ELSE
+    R> CMOVE
+  THEN
+;
+
+: FOLLOW-LINK
+  DUP 0= IF
+    CR ." FOLLOW-LINK: END OF DICTIONARY"
+    ABORT
+  THEN
+  DUP C@ OVER 1+ C@ 8 LSHIFT + -
+;
+
+: FORGET
+  WORD MUST-FIND
+  DUP HERE !
+  FOLLOW-LINK LATEST !
+;
+
+: CFA> ( xt -- dict )
+  LATEST @
+  BEGIN
+    DUP >CFA 2 PICK = IF
+      NIP EXIT
+    THEN
+    FOLLOW-LINK
+  AGAIN
+;
+
+: DEFER-DEFAULT
+  CR ." DEFER-DEFAULT: "
+  R>        ( pointer to after the xt of the undefined word )
+  1 CELLS - ( pointer to the xt of the undefined word )
+  @         ( xt of the undefined word )
+  CFA>      ( dictionary entry of the undefined word )
+  >FLAGS    ( pointer to counted string containing the name of the undefined word )
+  COUNT TYPE
+  ."  USED BEFORE BEING DEFINED WITH IS"
+  ABORT
+;
+
+: DEFER WORD CREATE-BARE $E9 C, ['] DEFER-DEFAULT HERE @ 1 CELLS ALLOT REL! ;
+DEFER TEST-DEFER
+
+: TEST TEST-DEFER ;
+
+TEST
+
 ." 2K Linux" CR
 CONCLUDE" TEST.FRT"

@@ -604,7 +604,7 @@ T{ 1 CHARS 1 CELLS > -> <FALSE> }T
 ( CELLS >= 1 AU, INTEGRAL MULTIPLE OF CHAR SIZE, >= 16 BITS )
 T{ 1 CELLS 1 < -> <FALSE> }T
 T{ 1 CELLS 1 CHARS MOD -> 0 }T
-T{ 1S BITS 10 < -> <FALSE> }T
+T{ 1S BITS $10 < -> <FALSE> }T
 
 T{ 0 1ST ! -> }T
 T{ 1 1ST +! -> }T
@@ -614,18 +614,18 @@ T{ -1 1ST +! 1ST @ -> 0 }T
 \ ------------------------------------------------------------------------
 TESTING CHAR [CHAR] [ ] BL S"
 
-T{ BL -> 20 }T
-T{ CHAR X -> 58 }T
-T{ CHAR HELLO -> 48 }T
+T{ BL -> $20 }T
+T{ CHAR X -> $58 }T
+T{ CHAR HELLO -> $48 }T
 T{ : GC1 [CHAR] X ; -> }T
 T{ : GC2 [CHAR] HELLO ; -> }T
-T{ GC1 -> 58 }T
-T{ GC2 -> 48 }T
+T{ GC1 -> $58 }T
+T{ GC2 -> $48 }T
 T{ : GC3 [ GC1 ] LITERAL ; -> }T
-T{ GC3 -> 58 }T
+T{ GC3 -> $58 }T
 T{ : GC4 S" XY" ; -> }T
 T{ GC4 SWAP DROP -> 2 }T
-T{ GC4 DROP DUP C@ SWAP CHAR+ C@ -> 58 59 }T
+T{ GC4 DROP DUP C@ SWAP CHAR+ C@ -> $58 $59 }T
 
 \ ------------------------------------------------------------------------
 TESTING ' ['] FIND EXECUTE IMMEDIATE COUNT LITERAL POSTPONE STATE
@@ -634,11 +634,8 @@ T{ : GT1 123 ; -> }T
 T{ ' GT1 EXECUTE -> 123 }T
 T{ : GT2 ['] GT1 ; IMMEDIATE -> }T
 T{ GT2 EXECUTE -> 123 }T
-HERE 3 C, CHAR G C, CHAR T C, CHAR 1 C, CONSTANT GT1STRING
-HERE 3 C, CHAR G C, CHAR T C, CHAR 2 C, CONSTANT GT2STRING
-T{ GT1STRING FIND -> ' GT1 -1 }T
-T{ GT2STRING FIND -> ' GT2 1 }T
-( HOW TO SEARCH FOR NON-EXISTENT WORD? )
+HERE @ 3 C, CHAR G C, CHAR T C, CHAR 1 C, CONSTANT GT1STRING
+HERE @ 3 C, CHAR G C, CHAR T C, CHAR 2 C, CONSTANT GT2STRING
 T{ : GT3 GT2 LITERAL ; -> }T
 T{ GT3 -> ' GT1 }T
 T{ GT1STRING COUNT -> GT1STRING CHAR+ 3 }T
@@ -747,176 +744,6 @@ T{ NOP NOP1 NOP NOP2 -> }T
 T{ NOP1 -> }T
 T{ NOP2 -> }T
 
-T{ : DOES1 DOES> @ 1 + ; -> }T
-T{ : DOES2 DOES> @ 2 + ; -> }T
-T{ CREATE CR1 -> }T
-T{ CR1 -> HERE }T
-T{ ' CR1 >BODY -> HERE }T
-T{ 1 , -> }T
-T{ CR1 @ -> 1 }T
-T{ DOES1 -> }T
-T{ CR1 -> 2 }T
-T{ DOES2 -> }T
-T{ CR1 -> 3 }T
-
-T{ : WEIRD: CREATE DOES> 1 + DOES> 2 + ; -> }T
-T{ WEIRD: W1 -> }T
-T{ ' W1 >BODY -> HERE }T
-T{ W1 -> HERE 1 + }T
-T{ W1 -> HERE 2 + }T
-
-\ ------------------------------------------------------------------------
-TESTING EVALUATE
-
-: GE1 S" 123" ; IMMEDIATE
-: GE2 S" 123 1+" ; IMMEDIATE
-: GE3 S" : GE4 345 ;" ;
-: GE5 EVALUATE ; IMMEDIATE
-
-T{ GE1 EVALUATE -> 123 }T         ( TEST EVALUATE IN INTERP. STATE )
-T{ GE2 EVALUATE -> 124 }T
-T{ GE3 EVALUATE -> }T
-T{ GE4 -> 345 }T
-
-T{ : GE6 GE1 GE5 ; -> }T         ( TEST EVALUATE IN COMPILE STATE )
-T{ GE6 -> 123 }T
-T{ : GE7 GE2 GE5 ; -> }T
-T{ GE7 -> 124 }T
-
-\ ------------------------------------------------------------------------
-TESTING SOURCE >IN WORD
-
-: GS1 S" SOURCE" 2DUP EVALUATE
-       >R SWAP >R = R> R> = ;
-T{ GS1 -> <TRUE> <TRUE> }T
-
-VARIABLE SCANS
-: RESCAN?  -1 SCANS +! SCANS @ IF 0 >IN ! THEN ;
-
-T{ 2 SCANS !
-345 RESCAN?
--> 345 345 }T
-
-: GS2  5 SCANS ! S" 123 RESCAN?" EVALUATE ;
-T{ GS2 -> 123 123 123 123 123 }T
-
-: GS3 WORD COUNT SWAP C@ ;
-T{ BL GS3 HELLO -> 5 CHAR H }T
-T{ CHAR " GS3 GOODBYE" -> 7 CHAR G }T
-T{ BL GS3
-DROP -> 0 }T            \ BLANK LINE RETURN ZERO-LENGTH STRING
-
-: GS4 SOURCE >IN ! DROP ;
-T{ GS4 123 456
--> }T
-
-\ ------------------------------------------------------------------------
-TESTING <# # #S #> HOLD SIGN BASE >NUMBER HEX DECIMAL
-
-: S=  \ ( ADDR1 C1 ADDR2 C2 -- T/F ) COMPARE TWO STRINGS.
-   >R SWAP R@ = IF         \ MAKE SURE STRINGS HAVE SAME LENGTH
-      R> ?DUP IF         \ IF NON-EMPTY STRINGS
-    0 DO
-       OVER C@ OVER C@ - IF 2DROP <FALSE> UNLOOP EXIT THEN
-       SWAP CHAR+ SWAP CHAR+
-         LOOP
-      THEN
-      2DROP <TRUE>         \ IF WE GET HERE, STRINGS MATCH
-   ELSE
-      R> DROP 2DROP <FALSE>      \ LENGTHS MISMATCH
-   THEN ;
-
-: GP1  <# 41 HOLD 42 HOLD 0 0 #> S" BA" S= ;
-T{ GP1 -> <TRUE> }T
-
-: GP2  <# -1 SIGN 0 SIGN -1 SIGN 0 0 #> S" --" S= ;
-T{ GP2 -> <TRUE> }T
-
-: GP3  <# 1 0 # # #> S" 01" S= ;
-T{ GP3 -> <TRUE> }T
-
-: GP4  <# 1 0 #S #> S" 1" S= ;
-T{ GP4 -> <TRUE> }T
-
-24 CONSTANT MAX-BASE         \ BASE 2 .. 36
-: COUNT-BITS
-   0 0 INVERT BEGIN DUP WHILE >R 1+ R> 2* REPEAT DROP ;
-COUNT-BITS 2* CONSTANT #BITS-UD      \ NUMBER OF BITS IN UD
-
-: GP5
-   BASE @ <TRUE>
-   MAX-BASE 1+ 2 DO         \ FOR EACH POSSIBLE BASE
-      I BASE !            \ TBD: ASSUMES BASE WORKS
-      I 0 <# #S #> S" 10" S= AND
-   LOOP
-   SWAP BASE ! ;
-T{ GP5 -> <TRUE> }T
-
-: GP6
-   BASE @ >R  2 BASE !
-   MAX-UINT MAX-UINT <# #S #>      \ MAXIMUM UD TO BINARY
-   R> BASE !            \ S: C-ADDR U
-   DUP #BITS-UD = SWAP
-   0 DO               \ S: C-ADDR FLAG
-      OVER C@ [CHAR] 1 = AND      \ ALL ONES
-      >R CHAR+ R>
-   LOOP SWAP DROP ;
-T{ GP6 -> <TRUE> }T
-
-: GP7
-   BASE @ >R    MAX-BASE BASE !
-   <TRUE>
-   A 0 DO
-      I 0 <# #S #>
-      1 = SWAP C@ I 30 + = AND AND
-   LOOP
-   MAX-BASE A DO
-      I 0 <# #S #>
-      1 = SWAP C@ 41 I A - + = AND AND
-   LOOP
-   R> BASE ! ;
-
-T{ GP7 -> <TRUE> }T
-
-\ >NUMBER TESTS
-CREATE GN-BUF 0 C,
-: GN-STRING   GN-BUF 1 ;
-: GN-CONSUMED   GN-BUF CHAR+ 0 ;
-: GN'      [CHAR] ' WORD CHAR+ C@ GN-BUF C!  GN-STRING ;
-
-T{ 0 0 GN' 0' >NUMBER -> 0 0 GN-CONSUMED }T
-T{ 0 0 GN' 1' >NUMBER -> 1 0 GN-CONSUMED }T
-T{ 1 0 GN' 1' >NUMBER -> BASE @ 1+ 0 GN-CONSUMED }T
-T{ 0 0 GN' -' >NUMBER -> 0 0 GN-STRING }T   \ SHOULD FAIL TO CONVERT THESE
-T{ 0 0 GN' +' >NUMBER -> 0 0 GN-STRING }T
-T{ 0 0 GN' .' >NUMBER -> 0 0 GN-STRING }T
-
-: >NUMBER-BASED
-   BASE @ >R BASE ! >NUMBER R> BASE ! ;
-
-T{ 0 0 GN' 2' 10 >NUMBER-BASED -> 2 0 GN-CONSUMED }T
-T{ 0 0 GN' 2'  2 >NUMBER-BASED -> 0 0 GN-STRING }T
-T{ 0 0 GN' F' 10 >NUMBER-BASED -> F 0 GN-CONSUMED }T
-T{ 0 0 GN' G' 10 >NUMBER-BASED -> 0 0 GN-STRING }T
-T{ 0 0 GN' G' MAX-BASE >NUMBER-BASED -> 10 0 GN-CONSUMED }T
-T{ 0 0 GN' Z' MAX-BASE >NUMBER-BASED -> 23 0 GN-CONSUMED }T
-
-: GN1   \ ( UD BASE -- UD' LEN ) UD SHOULD EQUAL UD' AND LEN SHOULD BE ZERO.
-   BASE @ >R BASE !
-   <# #S #>
-   0 0 2SWAP >NUMBER SWAP DROP      \ RETURN LENGTH ONLY
-   R> BASE ! ;
-T{ 0 0 2 GN1 -> 0 0 0 }T
-T{ MAX-UINT 0 2 GN1 -> MAX-UINT 0 0 }T
-T{ MAX-UINT DUP 2 GN1 -> MAX-UINT DUP 0 }T
-T{ 0 0 MAX-BASE GN1 -> 0 0 0 }T
-T{ MAX-UINT 0 MAX-BASE GN1 -> MAX-UINT 0 0 }T
-T{ MAX-UINT DUP MAX-BASE GN1 -> MAX-UINT DUP 0 }T
-
-: GN2   \ ( -- 16 10 )
-   BASE @ >R  HEX BASE @  DECIMAL BASE @  R> BASE ! ;
-T{ GN2 -> 10 A }T
-
 \ ------------------------------------------------------------------------
 TESTING FILL MOVE
 
@@ -945,6 +772,8 @@ T{ SEEBUF -> 12 20 20 }T
 T{ SBUF FBUF 3 CHARS MOVE -> }T
 T{ SEEBUF -> 12 34 56 }T
 
+TESTING STUFF
+
 T{ FBUF FBUF CHAR+ 2 CHARS MOVE -> }T
 T{ SEEBUF -> 12 12 34 }T
 
@@ -956,9 +785,9 @@ TESTING OUTPUT: . ." CR EMIT SPACE SPACES TYPE U.
 
 : OUTPUT-TEST
    ." YOU SHOULD SEE THE STANDARD GRAPHIC CHARACTERS:" CR
-   41 BL DO I EMIT LOOP CR
-   61 41 DO I EMIT LOOP CR
-   7F 61 DO I EMIT LOOP CR
+   $41 BL DO I EMIT LOOP CR
+   $61 $41 DO I EMIT LOOP CR
+   $7F $61 DO I EMIT LOOP CR
    ." YOU SHOULD SEE 0-9 SEPARATED BY A SPACE:" CR
    9 1+ 0 DO I . LOOP CR
    ." YOU SHOULD SEE 0-9 (WITH NO SPACES):" CR
@@ -976,21 +805,6 @@ TESTING OUTPUT: . ." CR EMIT SPACE SPACES TYPE U.
 
 T{ OUTPUT-TEST -> }T
 
-
-\ ------------------------------------------------------------------------
-TESTING INPUT: ACCEPT
-
-CREATE ABUF 50 CHARS ALLOT
-
-: ACCEPT-TEST
-   CR ." PLEASE TYPE UP TO 80 CHARACTERS:" CR
-   ABUF 50 ACCEPT
-   CR ." RECEIVED: " [CHAR] " EMIT
-   ABUF SWAP TYPE [CHAR] " EMIT CR
-;
-
-T{ ACCEPT-TEST -> }T
-
 \ ------------------------------------------------------------------------
 TESTING DICTIONARY SEARCH RULES
 
@@ -998,6 +812,4 @@ T{ : GDX   123 ; : GDX   GDX 234 ; -> }T
 
 T{ GDX -> 123 234 }T
 
-CR .( End of Core word set tests) CR
-
-
+CONCLUDE" COREEXT.FRT"
