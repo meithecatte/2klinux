@@ -135,7 +135,9 @@
 
 \ CELLS turns a number of cells into a number of bytes
 : CELLS 2 LSHIFT ;
-: CELL+ 4 + ;
+: CELL 4 ;
+: CELL+ CELL + ;
+: CELL- CELL - ;
 : NIP SWAP DROP ;
 : TUCK SWAP OVER ;
 
@@ -545,7 +547,7 @@ HIDE [COMPILE]
 : MAX ( a b -- max(a, b) ) MINMAX NIP ;
 
 : DEPTH ( -- n )
-  S0 SP@ - 1 CELLS - 2 RSHIFT
+  S0 SP@ - CELL- 2 RSHIFT
 ;
 
 ( ---------- STRING LITERALS ------------------------------------------------------------------- )
@@ -682,12 +684,12 @@ HIDE COMPILE-STRING-CHARACTERS
   DUP ,
   HERE @ ( loop-beginning loop-end )
   POSTPONE UNLOOP
-  SWAP 1 CELLS - ( loop-end curr-address )
+  SWAP CELL- ( loop-end curr-address )
   BEGIN
     DUP @ ['] LEAVE = IF
       ( loop-end curr-address )
       ( make sure it's preceded by a branch! )
-      DUP 1 CELLS - @ ( loop-end curr-address word-before )
+      DUP CELL- @ ( loop-end curr-address word-before )
       DUP ['] BRANCH = SWAP ['] 0BRANCH = OR IF
         2DUP ( loop-end curr-address loop-end curr-address ) !
       THEN
