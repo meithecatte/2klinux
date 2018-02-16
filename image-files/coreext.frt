@@ -453,59 +453,13 @@ T{  4 RN2 EXECUTE -> 33 22 11 0 }T
 T{ 25 RN2 EXECUTE -> 33 22 11 0 }T
 
 \ -----------------------------------------------------------------------------
-TESTING C"
-
-T{ : CQ1 C" 123" ; -> }T
-T{ CQ1 COUNT EVALUATE -> 123 }T
-T{ : CQ2 C" " ; -> }T
-T{ CQ2 COUNT EVALUATE -> }T
-T{ : CQ3 C" 2345"COUNT EVALUATE ; CQ3 -> 2345 }T
-
-\ -----------------------------------------------------------------------------
-TESTING COMPILE,
-
-:NONAME DUP + ; CONSTANT DUP+
-T{ : Q DUP+ COMPILE, ; -> }T
-T{ : AS1 [ Q ] ; -> }T
-T{ 123 AS1 -> 246 }T
-
-\ -----------------------------------------------------------------------------
-\ Cannot automatically test SAVE-INPUT and RESTORE-INPUT from a console source
-
-TESTING SAVE-INPUT and RESTORE-INPUT with a string source
-
-VARIABLE SI_INC 0 SI_INC !
-
-: SI1
-   SI_INC @ >IN +!
-   15 SI_INC !
-;
-
-: S$ S" SAVE-INPUT SI1 RESTORE-INPUT 12345" ;
-
-T{ S$ EVALUATE SI_INC @ -> 0 2345 15 }T
-
-\ -----------------------------------------------------------------------------
-TESTING .(
-
-CR CR .( Output from .() 
-T{ CR .( You should see -9876: ) -9876 . -> }T
-T{ CR .( and again: ).( -9876)CR -> }T
-
-CR CR .( On the next 2 lines you should see First then Second messages:)
-T{ : DOTP  CR ." Second message via ." [CHAR] " EMIT    \ Check .( is immediate
-     [ CR ] .( First message via .( ) ; DOTP -> }T
-CR CR
-T{ : IMM? BL WORD FIND NIP ; IMM? .( -> 1 }T
-
-\ -----------------------------------------------------------------------------
 TESTING .R and U.R - has to handle different cell sizes
 
 \ Create some large integers just below/above MAX and Min INTs
 MAX-INT 73 79 */ CONSTANT LI1
 MIN-INT 71 73 */ CONSTANT LI2
 
-LI1 0 <# #S #> NIP CONSTANT LENLI1
+10 CONSTANT LENLI1
 
 : (.R&U.R)  ( u1 u2 -- )  \ u1 <= string length, u2 is required indentation
    TUCK + >R
@@ -522,83 +476,8 @@ LI1 0 <# #S #> NIP CONSTANT LENLI1
    ." indented by 5 spaces" CR LENLI1 5 (.R&U.R) CR
 ;
 
-CR CR .( Output from .R and U.R)
+CR CR ." Output from .R and U.R"
 T{ .R&U.R -> }T
-
-\ -----------------------------------------------------------------------------
-TESTING PAD ERASE
-\ Must handle different size characters i.e. 1 CHARS >= 1 
-
-84 CONSTANT CHARS/PAD      \ Minimum size of PAD in chars
-CHARS/PAD CHARS CONSTANT AUS/PAD
-: CHECKPAD  ( caddr u ch -- f )  \ f = TRUE if u chars = ch
-   SWAP 0
-   ?DO
-      OVER I CHARS + C@ OVER <>
-      IF 2DROP UNLOOP FALSE EXIT THEN
-   LOOP  
-   2DROP TRUE
-;
-
-T{ PAD DROP -> }T
-T{ 0 INVERT PAD C! -> }T
-T{ PAD C@ CONSTANT MAXCHAR -> }T
-T{ PAD CHARS/PAD 2DUP MAXCHAR FILL MAXCHAR CHECKPAD -> TRUE }T
-T{ PAD CHARS/PAD 2DUP CHARS ERASE 0 CHECKPAD -> TRUE }T
-T{ PAD CHARS/PAD 2DUP MAXCHAR FILL PAD 0 ERASE MAXCHAR CHECKPAD -> TRUE }T
-T{ PAD 43 CHARS + 9 CHARS ERASE -> }T
-T{ PAD 43 MAXCHAR CHECKPAD -> TRUE }T
-T{ PAD 43 CHARS + 9 0 CHECKPAD -> TRUE }T
-T{ PAD 52 CHARS + CHARS/PAD 52 - MAXCHAR CHECKPAD -> TRUE }T
-
-\ Check that use of WORD and pictured numeric output do not corrupt PAD
-\ Minimum size of buffers for these are 33 chars and (2*n)+2 chars respectively
-\ where n is number of bits per cell
-
-PAD CHARS/PAD ERASE
-2 BASE !
-MAX-UINT MAX-UINT <# #S CHAR 1 DUP HOLD HOLD #> 2DROP
-DECIMAL
-BL WORD 12345678123456781234567812345678 DROP
-T{ PAD CHARS/PAD 0 CHECKPAD -> TRUE }T
-
-\ -----------------------------------------------------------------------------
-TESTING PARSE
-
-T{ CHAR | PARSE 1234| DUP ROT ROT EVALUATE -> 4 1234 }T
-T{ CHAR ^ PARSE  23 45 ^ DUP ROT ROT EVALUATE -> 7 23 45 }T
-: PA1 [CHAR] $ PARSE DUP >R PAD SWAP CHARS MOVE PAD R> ;
-T{ PA1 3456
-   DUP ROT ROT EVALUATE -> 4 3456 }T
-T{ CHAR A PARSE A SWAP DROP -> 0 }T
-T{ CHAR Z PARSE
-   SWAP DROP -> 0 }T
-T{ CHAR " PARSE 4567 "DUP ROT ROT EVALUATE -> 5 4567 }T
- 
-\ -----------------------------------------------------------------------------
-TESTING PARSE-NAME  (Forth 2012)
-\ Adapted from the PARSE-NAME RfD tests
-
-T{ PARSE-NAME abcd  STR1  S= -> TRUE }T        \ No leading spaces
-T{ PARSE-NAME      abcde STR2 S= -> TRUE }T    \ Leading spaces
-
-\ Test empty parse area, new lines are necessary
-T{ PARSE-NAME
-  NIP -> 0 }T
-\ Empty parse area with spaces after PARSE-NAME
-T{ PARSE-NAME         
-  NIP -> 0 }T
-
-T{ : PARSE-NAME-TEST ( "name1" "name2" -- n )
-    PARSE-NAME PARSE-NAME S= ; -> }T
-T{ PARSE-NAME-TEST abcd abcd  -> TRUE }T
-T{ PARSE-NAME-TEST abcd   abcd  -> TRUE }T  \ Leading spaces
-T{ PARSE-NAME-TEST abcde abcdf -> FALSE }T
-T{ PARSE-NAME-TEST abcdf abcde -> FALSE }T
-T{ PARSE-NAME-TEST abcde abcde
-   -> TRUE }T         \ Parse to end of line
-T{ PARSE-NAME-TEST abcde           abcde         
-   -> TRUE }T         \ Leading and trailing spaces
 
 \ -----------------------------------------------------------------------------
 TESTING DEFER DEFER@ DEFER! IS ACTION-OF (Forth 2012)
@@ -634,75 +513,5 @@ T{ MY-DEFER DEFER2 -> }T
 T{ ' DUP IS DEFER2 -> }T
 T{ 1 DEFER2 -> 1 1 }T
 
-\ -----------------------------------------------------------------------------
-TESTING HOLDS  (Forth 2012)
-
-: HTEST S" Testing HOLDS" ;
-: HTEST2 S" works" ;
-: HTEST3 S" Testing HOLDS works 123" ;
-T{ 0 0 <#  HTEST HOLDS #> HTEST S= -> TRUE }T
-T{ 123 0 <# #S BL HOLD HTEST2 HOLDS BL HOLD HTEST HOLDS #>
-   HTEST3 S= -> TRUE }T
-T{ : HLD HOLDS ; -> }T
-T{ 0 0 <#  HTEST HLD #> HTEST S= -> TRUE }T
-
-\ -----------------------------------------------------------------------------
-TESTING REFILL SOURCE-ID
-\ REFILL and SOURCE-ID from the user input device can't be tested from a file,
-\ can only be tested from a string via EVALUATE
-
-T{ : RF1  S" REFILL" EVALUATE ; RF1 -> FALSE }T
-T{ : SID1  S" SOURCE-ID" EVALUATE ; SID1 -> -1 }T
-
-\ ------------------------------------------------------------------------------
-TESTING S\"  (Forth 2012 compilation mode)
-\ Extended the Forth 200X RfD tests
-\ Note this tests the Core Ext definition of S\" which has unedfined
-\ interpretation semantics. S\" in interpretation mode is tested in the tests on
-\ the File-Access word set
-
-T{ : SSQ1 S\" abc" S" abc" S= ; -> }T  \ No escapes
-T{ SSQ1 -> TRUE }T
-T{ : SSQ2 S\" " ; SSQ2 SWAP DROP -> 0 }T    \ Empty string
-
-T{ : SSQ3 S\" \a\b\e\f\l\m\q\r\t\v\x0F0\x1Fa\xaBx\z\"\\" ; -> }T
-T{ SSQ3 SWAP DROP          ->  20 }T    \ String length
-T{ SSQ3 DROP            C@ ->   7 }T    \ \a   BEL  Bell
-T{ SSQ3 DROP  1 CHARS + C@ ->   8 }T    \ \b   BS   Backspace
-T{ SSQ3 DROP  2 CHARS + C@ ->  27 }T    \ \e   ESC  Escape
-T{ SSQ3 DROP  3 CHARS + C@ ->  12 }T    \ \f   FF   Form feed
-T{ SSQ3 DROP  4 CHARS + C@ ->  10 }T    \ \l   LF   Line feed
-T{ SSQ3 DROP  5 CHARS + C@ ->  13 }T    \ \m        CR of CR/LF pair
-T{ SSQ3 DROP  6 CHARS + C@ ->  10 }T    \           LF of CR/LF pair
-T{ SSQ3 DROP  7 CHARS + C@ ->  34 }T    \ \q   "    Double Quote
-T{ SSQ3 DROP  8 CHARS + C@ ->  13 }T    \ \r   CR   Carriage Return
-T{ SSQ3 DROP  9 CHARS + C@ ->   9 }T    \ \t   TAB  Horizontal Tab
-T{ SSQ3 DROP 10 CHARS + C@ ->  11 }T    \ \v   VT   Vertical Tab
-T{ SSQ3 DROP 11 CHARS + C@ ->  15 }T    \ \x0F      Given Char
-T{ SSQ3 DROP 12 CHARS + C@ ->  48 }T    \ 0    0    Digit follow on
-T{ SSQ3 DROP 13 CHARS + C@ ->  31 }T    \ \x1F      Given Char
-T{ SSQ3 DROP 14 CHARS + C@ ->  97 }T    \ a    a    Hex follow on
-T{ SSQ3 DROP 15 CHARS + C@ -> 171 }T    \ \xaB      Insensitive Given Char
-T{ SSQ3 DROP 16 CHARS + C@ -> 120 }T    \ x    x    Non hex follow on
-T{ SSQ3 DROP 17 CHARS + C@ ->   0 }T    \ \z   NUL  No Character
-T{ SSQ3 DROP 18 CHARS + C@ ->  34 }T    \ \"   "    Double Quote
-T{ SSQ3 DROP 19 CHARS + C@ ->  92 }T    \ \\   \    Back Slash
-
-\ The above does not test \n as this is a system dependent value.
-\ Check it displays a new line
-CR .( The next test should display:)
-CR .( One line...)
-CR .( another line)
-T{ : SSQ4 S\" \nOne line...\nanotherLine\n" type ; SSQ4 -> }T
-
-\ Test bare escapable characters appear as themselves
-T{ : SSQ5 S\" abeflmnqrtvxz" S" abeflmnqrtvxz" S= ; SSQ5 -> TRUE }T
-
-T{ : SSQ6 S\" a\""2DROP 1111 ; SSQ6 -> 1111 }T \ Parsing behaviour
-
-T{ : SSQ7  S\" 111 : SSQ8 s\\\" 222\" EVALUATE ; SSQ8 333" EVALUATE ; -> }T
-T{ SSQ7 -> 111 222 333 }T
-T{ : SSQ9  S\" 11 : SSQ10 s\\\" \\x32\\x32\" EVALUATE ; SSQ10 33" EVALUATE ; -> }T
-T{ SSQ9 -> 11 22 33 }T
-
 FORGET BITSSET?
+CONCLUDE" CPP.FRT"

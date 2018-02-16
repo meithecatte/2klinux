@@ -3,7 +3,6 @@
 : BLK     $7C10 ;
 : >IN     $7C14 ;
 : LATEST  $7C18 ;
-: HERE    $7C1C ;
 : STATE   $7C20 ;
 : LENGTH  $7C24 ;
 
@@ -11,9 +10,11 @@
 : F_HIDDEN  $20 ;
 : F_LENMASK $1F ;
 
+: HERE    $7C1C @ ;
+: ALLOT   $7C1C +! ;
 : ROOT $882C @ LOAD ;
 
-: NL 10 ;
+: #CR 10 ;
 : BL 32 ;
 
 : FALSE 0 ;
@@ -33,8 +34,13 @@
 : [ FALSE STATE ! ; IMMEDIATE
 : ] TRUE STATE ! ;
 
+: UNGETC
+  1 >IN -!
+  1 LENGTH +!
+;
+
 : KEY-NOEOF KEY ;
-: \ [ HERE @ ] KEY-NOEOF NL = 0BRANCH [ , ] ; IMMEDIATE
+: \ UNGETC [ HERE ] KEY-NOEOF #CR = 0BRANCH [ , ] ; IMMEDIATE
 
 \ ---------- AN EXPLANATION OF WHAT HAS JUST HAPPENED --------------------------------------------
 
@@ -43,9 +49,8 @@
 \ doing so a necessity, instead of being just an exercise. However, to define the comment word you
 \ see above, I needed some other words, which I will explain here.
 
-\ At the very beginning of this file, a few constants are defined. It's done here, because exactly
-\ the same values are also defined in stage0.s, and any discrepncies mean chaos.
-\ The first batch of constants contains important addresses:
+\ At the very beginning of this file, words that hardcode addresses are defined. The first batch
+\ contains simple constants:
 \ R0 - the initial value of the return stack pointer
 \ S0 - the initial value of the data stack pointer
 \ BLK - holds the cluster number of the currently loaded cluster
@@ -53,7 +58,6 @@
 \       it can be used to save and restore the current file position, for example in order to read
 \       multiple files at once, which is necessary for implementing the C preprocessor.
 \ LATEST - holds the address of the last word defined
-\ HERE - holds the address of the first free byte of memory
 \ STATE - FALSE if interpreting words, TRUE when compiling
 \ LENGTH - the number of bytes left in the currently open file. When this goes down to 0, KEY will
 \          return zeroes indefinitely. Since binary files are not expected, this should be handled
@@ -66,7 +70,7 @@
 \ the address of BPBRootCluster, it's also defined here.
 
 \ Below, two character constants are defined. BL stands for BLank, and it contains the ASCII value
-\ of the space character, while NL stands for New Line, and contains the newline character.
+\ of the space character, while #CR stands for New Line, and contains the newline character.
 
 \ In Forth, FALSE is represented by a cell with all bits unset, and TRUE - by a cell with all bits
 \ set, which corresponds with the two's complement representation of -1. This representation makes
@@ -94,7 +98,7 @@
 \ mostly useful to calculate something once and make it a number literal.
 
 \ This functionality is used while defining \, since the loop constructs are not yet available. If
-\ they were, this word would be defined as `: \ BEGIN KEY NL = UNTIL ; IMMEDIATE`, which is surely
+\ they were, this word would be defined as `: \ BEGIN KEY #CR = UNTIL ; IMMEDIATE`, which is surely
 \ easier to understand - skip characters until you encounter a newline.
 
 \ You might notice how a seemingly useless wrapper around KEY is declared. KEY-NOEOF will handle a
@@ -261,22 +265,22 @@
 \ IF: compile a conditional branch and push the address of the destination pointer on the stack.
 : IF              \ ( -- ptr1-addr )
   COMPILE 0BRANCH
-  HERE @          \ save the address
+  HERE            \ save the address
   0 ,             \ compile a dummy ptr1
 ; IMMEDIATE
 
 \ ELSE: compile an unconditional branch and resolve the previous, conditional branch.
 : ELSE            \ ( ptr1-addr -- ptr2-addr )
   COMPILE BRANCH
-  HERE @          \ ( ptr1-addr ptr2-addr )
+  HERE            \ ( ptr1-addr ptr2-addr )
   0 ,             \ compile a dummy ptr2
-  HERE @          \ ( ptr1-addr ptr2-addr ptr1-val )
+  HERE            \ ( ptr1-addr ptr2-addr ptr1-val )
   ROT !           \ ( ptr2-addr )
 ; IMMEDIATE
 
 \ THEN: resolve the previous branch.
 : THEN            \ ( ptr-addr -- )
-  HERE @          \ ( ptr-addr ptr-val )
+  HERE            \ ( ptr-addr ptr-val )
   SWAP !
 ; IMMEDIATE
 
@@ -287,7 +291,7 @@
 \ The underlying assembly implementation uses BIOS's teletype output interrupt, which uses CRLF as
 \ the line ending - this overrides the implementation of EMIT to convert LF to CRLF on the fly.
 : EMIT
-  DUP NL = IF
+  DUP #CR = IF
     13 EMIT
   THEN
   EMIT
@@ -385,7 +389,7 @@ HIDE [COMPILE]
 \    \__________________________/
 
 \ BEGIN: save a branch destination for later consumption
-: BEGIN HERE @ ; IMMEDIATE
+: BEGIN HERE ; IMMEDIATE
 
 \ UNTIL: compile a conditional branch using the destination left on the stack by BEGIN
 : UNTIL POSTPONE 0BRANCH , ; IMMEDIATE
@@ -406,7 +410,7 @@ HIDE [COMPILE]
 
 : WHILE \ ( ptr2-val -- ptr1-addr ptr2-val )
   POSTPONE 0BRANCH
-  HERE @           \ ( ptr2-val ptr1-addr )
+  HERE             \ ( ptr2-val ptr1-addr )
   0 ,              \ a dummy destination
   SWAP
 ; IMMEDIATE
@@ -414,7 +418,7 @@ HIDE [COMPILE]
 : REPEAT \ ( ptr1-addr ptr2-val -- )
   POSTPONE BRANCH
   ,      \ ( ptr1-addr )
-  HERE @ \ resolve ptr1
+  HERE   \ resolve ptr1
   SWAP !
 ; IMMEDIATE
 
@@ -526,7 +530,7 @@ HIDE [COMPILE]
   2SWAP
 ;
 
-: C, ( char -- ) HERE @ TUCK ! 1+ HERE ! ;
+: C, ( char -- ) HERE 1 ALLOT ! ;
 
 : WITHIN ( c a b -- within? )
   OVER   ( c a b a )
@@ -566,7 +570,6 @@ HIDE [COMPILE]
 
 : COMPILE-STRING-CHARACTERS
   ( a helper function used to compile characters until a " )
-  KEY-NOEOF DROP ( skip one character as the word separator )
   BEGIN
     KEY-NOEOF DUP [CHAR] " <>
   WHILE
@@ -580,21 +583,21 @@ HIDE [COMPILE]
   STATE @ IF
     ( we're in compile mode, compile LITSTRING )
     POSTPONE LITSTRING
-    HERE @ ( save the address of the length word on the stack )
+    HERE ( save the address of the length word on the stack )
     0 ,    ( compile a dummy length )
     COMPILE-STRING-CHARACTERS
     DUP    ( length-addr length-addr )
     CELL+  ( length-addr first-char-addr )
-    HERE @ ( length-addr first-char-addr byte-after-last-char-addr )
+    HERE   ( length-addr first-char-addr byte-after-last-char-addr )
     SWAP - ( length-addr length )
     SWAP ! ( )
   ELSE
     ( we're in immediate mode, use the currently free bytes but don't update HERE )
-    HERE @ ( first-char-addr )
+    HERE   ( first-char-addr )
     COMPILE-STRING-CHARACTERS
-    HERE @ ( first-char-addr byte-after-last-char-addr )
+    HERE   ( first-char-addr byte-after-last-char-addr )
     OVER - ( first-char-addr length )
-    OVER HERE ! ( restore HERE )
+    DUP NEGATE ALLOT ( free the bytes )
   THEN
 ; IMMEDIATE
 
@@ -669,20 +672,20 @@ HIDE COMPILE-STRING-CHARACTERS
 
 : DO
   POSTPONE 2>R
-  HERE @
+  HERE
 ; IMMEDIATE
 
 : ?DO
   POSTPONE (?DO)
   POSTPONE 0BRANCH
   ['] LEAVE ,
-  HERE @
+  HERE
 ; IMMEDIATE
 
 : SOME-LOOP
   POSTPONE 0BRANCH
   DUP ,
-  HERE @ ( loop-beginning loop-end )
+  HERE ( loop-beginning loop-end )
   POSTPONE UNLOOP
   SWAP CELL- ( loop-end curr-address )
   BEGIN
@@ -742,12 +745,12 @@ HIDE SOME-LOOP
 : PUSH-IMM32, $68 C, , ;
 : NEXT, $AD C, $FF C, $E0 C, ;
 : REL! ( value addr -- ) DUP >R CELL+ - R> ! ;
+: REL@ ( addr -- value ) DUP @ CELL+ + ;
 
-: ALLOT HERE +! ;
 : CREATE
   WORD
   CREATE-BARE
-  HERE @ 8 + PUSH-IMM32, NEXT,
+  HERE 8 + PUSH-IMM32, NEXT,
 ;
 
 : MKNOP WORD CREATE-BARE NEXT, ;
@@ -760,14 +763,14 @@ MKNOP ALIGNED
 HIDE PUSH-IMM32,
 HIDE NEXT,
 
-: EXECUTE [ HERE @ 12 + ] LITERAL !
+: EXECUTE [ HERE 12 + ] LITERAL !
   DROP ( this DROP is overwritten by the previous line )
 ;
 
 : ABS DUP 0< IF NEGATE THEN ;
 
 : SPACE BL EMIT ;
-: CR NL EMIT ;
+: CR #CR EMIT ;
 : SPACES
   0 MAX
   0 ?DO SPACE LOOP
@@ -791,7 +794,7 @@ HIDE NEXT,
 
 : FORGET
   WORD MUST-FIND
-  DUP HERE !
+  DUP HERE - ALLOT
   FOLLOW-LINK LATEST !
 ;
 
@@ -838,9 +841,13 @@ HIDE NEXT,
 : [']      COMPILE-ONLY POSTPONE [']      ; IMMEDIATE
 : [CHAR]   COMPILE-ONLY POSTPONE [CHAR]   ; IMMEDIATE
 
+VARIABLE RECURSE-XT CELL ALLOT
+
 ( RECURSE calls the word that's currently being defined - using the name of the word directly will
   compile a call to the previous definition. This is also an example of how to use COMPILE-ONLY. )
-: RECURSE COMPILE-ONLY LATEST @ >CFA , ; IMMEDIATE
+: RECURSE COMPILE-ONLY RECURSE-XT @ , ; IMMEDIATE
+: : WORD F_HIDDEN OR CREATE-BARE HERE RECURSE-XT ! DOCOL, ] ;
+: :NONAME HERE DUP RECURSE-XT ! DOCOL, ] ;
 
 : .DIGIT
   DUP 10 < IF
@@ -1026,12 +1033,52 @@ MKNOP CHARS
   ABORT
 ;
 
-: DEFER WORD CREATE-BARE $E8 C, ['] DEFER-DEFAULT HERE @ CELL ALLOT REL! ;
-DEFER TEST-DEFER
+: DEFER WORD CREATE-BARE $E8 C, ['] DEFER-DEFAULT HERE CELL ALLOT REL! ;
+: DEFER@ 1+ REL@ ;
+: DEFER! $E9 OVER C! 1+ REL! ;
 
-: TEST TEST-DEFER ;
+: IS
+  STATE @ IF
+    POSTPONE ['] POSTPONE DEFER!
+  ELSE
+    ' DEFER!
+  THEN
+; IMMEDIATE
 
-TEST
+: ACTION-OF
+  STATE @ IF
+    POSTPONE ['] POSTPONE DEFER@
+  ELSE
+    ' DEFER@
+  THEN
+; IMMEDIATE
+
+:NONAME
+  2DUP
+  FIND
+  DUP 0= IF
+    ." MUST-FIND: can't find "
+    DROP TYPE ABORT
+  THEN
+  NIP NIP
+; IS MUST-FIND
+
+:NONAME
+  KEY
+  DUP 0= IF
+    ." KEY-NOEOF: EOF" ABORT
+  THEN
+; IS KEY-NOEOF
+
+: S=
+  2 PICK <> IF DROP 2DROP FALSE EXIT THEN
+  SWAP 0 ?DO
+    OVER C@ OVER C@
+    <> IF 2DROP UNLOOP FALSE EXIT THEN
+    CHAR+ SWAP CHAR+ SWAP
+  LOOP
+  2DROP TRUE EXIT
+;
 
 ." 2K Linux" CR
 CONCLUDE" TEST.FRT"

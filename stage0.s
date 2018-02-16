@@ -966,7 +966,7 @@ _CMOVE:
 	pop edi
 	pop esi
 	add esp, 12
-	NEXT
+	jmp short doNEXT
 
 link_TOR:
 	dw $-link_CMOVE
@@ -975,6 +975,7 @@ TOR:
 	pop eax
 	sub edi, 4
 	mov [edi], eax
+doNEXT:
 	NEXT
 
 link_FROMR:
@@ -983,42 +984,42 @@ link_FROMR:
 FROMR:
 	push dword[edi]
 	add edi, 4
-	NEXT
+	jmp short doNEXT
 
 link_RPEEK:
 	dw $-link_FROMR
 	db 2, 'R@'
 RPEEK:
 	push dword[edi]
-	NEXT
+	jmp short doNEXT
 
 link_RDROP:
 	dw $-link_RPEEK
 	db 5, 'RDROP'
 RDROP:
 	add edi, 4
-	NEXT
+	jmp short doNEXT
 
 link_RPSTORE:
 	dw $-link_RDROP
 	db 3, 'RP!'
 RPSTORE:
 	pop edi
-	NEXT
+	jmp short doNEXT
 
 link_RPFETCH:
 	dw $-link_RPSTORE
 	db 3, 'RP@'
 RPFETCH:
 	push edi
-	NEXT
+	jmp short doNEXT
 
 link_SPSTORE:
 	dw $-link_RPFETCH
 	db 3, 'SP!'
 SPSTORE:
 	pop esp
-	NEXT
+	jmp short doNEXT
 
 link_SPFETCH:
 	dw $-link_SPSTORE
@@ -1026,7 +1027,7 @@ link_SPFETCH:
 SPFETCH:
 	mov eax, esp
 	push eax
-	NEXT
+	jmp short doNEXT
 
 link_BRANCH:
 	dw $-link_SPFETCH
@@ -1034,7 +1035,7 @@ link_BRANCH:
 BRANCH:
 	lodsd
 	xchg esi, eax
-	NEXT
+	jmp short doNEXT
 
 link_0BRANCH:
 	dw $-link_BRANCH
@@ -1043,10 +1044,8 @@ _0BRANCH:
 	lodsd
 	pop ebx
 	or ebx, ebx
-	jnz .dontbranch
-	xchg esi, eax
-.dontbranch:
-	NEXT
+	cmovz esi, eax
+	jmp short doNEXT
 
 link_KEY:
 	dw $-link_0BRANCH
@@ -1054,7 +1053,7 @@ link_KEY:
 KEY:
 	call near doKEY
 	push eax
-	NEXT
+	jmp short doNEXT
 
 doKEY:
 	mov eax, [ebp+dLENGTH]
@@ -1103,10 +1102,6 @@ doWORD:
 	call near doKEY
 	cmp al, ' '
 	ja .loop
-
-	; ungetc
-	dec dword[ebp+dTOIN]
-	inc dword[ebp+dLENGTH]
 
 	mov byte[edx+ecx], 0
 	xchg edx, eax
@@ -1287,14 +1282,14 @@ doFIND:
 	pop esi
 	ret
 
-link_COLON:
+link_DOCOLCOMMA
 	dw $-link_FIND
-	db 1, ':'
-COLON:
-	call near doWORD
-	or cl, F_HIDDEN
-	call near doCREATE
+	db 6, 'DOCOL,'
+DOCOLCOMMA:
+	call near doDOCOLCOMMA
+	NEXT
 
+doDOCOLCOMMA:
 	push edi
 	mov edi, [ebp+dHERE]
 	mov al, 0xE8
@@ -1304,6 +1299,16 @@ COLON:
 	stosd
 	mov [ebp+dHERE], edi
 	pop edi
+	ret
+
+link_COLON:
+	dw $-link_DOCOLCOMMA
+	db 1, ':'
+COLON:
+	call near doWORD
+	or cl, F_HIDDEN
+	call near doCREATE
+	call near doDOCOLCOMMA
 
 	xor eax, eax
 	dec eax
