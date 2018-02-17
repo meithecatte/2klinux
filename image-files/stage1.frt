@@ -11,9 +11,11 @@
 : F_LENMASK $1F ;
 
 : HERE    $7C1C @ ;
+: HERE!   $7C1C ! ;
 : ALLOT   $7C1C +! ;
 : ROOT $882C @ LOAD ;
 
+: #TAB 9 ;
 : #CR 10 ;
 : BL 32 ;
 
@@ -597,7 +599,7 @@ HIDE [COMPILE]
     COMPILE-STRING-CHARACTERS
     HERE   ( first-char-addr byte-after-last-char-addr )
     OVER - ( first-char-addr length )
-    DUP NEGATE ALLOT ( free the bytes )
+    OVER HERE! ( free the bytes )
   THEN
 ; IMMEDIATE
 
@@ -794,7 +796,7 @@ HIDE NEXT,
 
 : FORGET
   WORD MUST-FIND
-  DUP HERE - ALLOT
+  DUP HERE!
   FOLLOW-LINK LATEST !
 ;
 
