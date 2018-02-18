@@ -6,14 +6,14 @@
 : STATE   $7C20 ;
 : LENGTH  $7C24 ;
 
-: F_IMMED   $80 ;
-: F_HIDDEN  $20 ;
-: F_LENMASK $1F ;
-
 : HERE    $7C1C @ ;
 : HERE!   $7C1C ! ;
 : ALLOT   $7C1C +! ;
 : ROOT $882C @ LOAD ;
+
+: F_IMMED   $80 ;
+: F_HIDDEN  $20 ;
+: F_LENMASK $1F ;
 
 : #TAB 9 ;
 : #CR 10 ;
@@ -33,15 +33,15 @@
 : >FLAGS 2 + ;
 : IMMEDIATE F_IMMED LATEST @ >FLAGS COR! ;
 
-: [ FALSE STATE ! ; IMMEDIATE
-: ] TRUE STATE ! ;
-
+: KEY-NOEOF KEY ;
 : UNGETC
   1 >IN -!
   1 LENGTH +!
 ;
 
-: KEY-NOEOF KEY ;
+: [ FALSE STATE ! ; IMMEDIATE
+: ] TRUE STATE ! ;
+
 : \ UNGETC [ HERE ] KEY-NOEOF #CR = 0BRANCH [ , ] ; IMMEDIATE
 
 \ ---------- AN EXPLANATION OF WHAT HAS JUST HAPPENED --------------------------------------------
@@ -51,8 +51,8 @@
 \ doing so a necessity, instead of being just an exercise. However, to define the comment word you
 \ see above, I needed some other words, which I will explain here.
 
-\ At the very beginning of this file, words that hardcode addresses are defined. The first batch
-\ contains simple constants:
+\ At the very beginning of this file, a few words that need to hardcode addresses are defined. The
+\ first batch contains simple constants:
 \ R0 - the initial value of the return stack pointer
 \ S0 - the initial value of the data stack pointer
 \ BLK - holds the cluster number of the currently loaded cluster
@@ -65,14 +65,19 @@
 \          return zeroes indefinitely. Since binary files are not expected, this should be handled
 \          appropriately by anything using KEY directly.
 
-\ Below, the constants describing the flags field of a dictionary entry are defined. You should go
-\ to stage0.s for more information if their meaning is unclear.
+\ Below, you can see words that do a little bit more:
+\ HERE - push the current value of the data pointer
+\ HERE! - deallocate memory: given an address, make it the first free byte in the data space
+\ ALLOT - allocate memory
+\ ROOT - load the root directory, often used before FILE
 
-\ ROOT is a word that LOADs the first cluster of the root directory, and because it depends on the
-\ the address of BPBRootCluster, it's also defined here.
+\ Next, the constants describing the flags field of a dictionary entry are defined. If you want to
+\ learn more, they are discussed throroughly in stage0.s
 
-\ Below, two character constants are defined. BL stands for BLank, and it contains the ASCII value
-\ of the space character, while #CR stands for New Line, and contains the newline character.
+\ After that we see the character constants:
+\ #TAB - the ASCII value of the tab character
+\ #CR - the ASCII value of the linefeed character
+\ BL - the ASCII value of the space character
 
 \ In Forth, FALSE is represented by a cell with all bits unset, and TRUE - by a cell with all bits
 \ set, which corresponds with the two's complement representation of -1. This representation makes
@@ -81,36 +86,43 @@
 \ representations, which becomes important when dealing with logical operations.
 
 \ OR!, XOR! and AND! all combine the corresponding bitwise operation with ! in a similar manner to
-\ +! or -!.  For example,  `VAR @ $12 XOR VAR !` is equivalent to `$12 VAR XOR!`.  COR!, CXOR! and
-\ CAND! work in the same manner, but on single bytes instead of 32-bit cells.
+\ +! or -!. For example, `VAR @ $12 XOR VAR !` is equivalent to `$12 VAR XOR!`. Below, you can see
+\ their one-byte equivalents, which are prefixed with C, like C@, C! and C,.
 
 \ Finally, >FLAGS is a word that takes a pointer to the link field of a dictionary entry and turns
 \ it into a pointer to the flags field.
 
 \ All of this makes it possible to define IMMEDIATE. Unsurprisingly, IMMEDIATE is used to mark the
 \ word defined last as immediate. This flag means that INTERPRET runs the marked word immediately,
-\ _even if it's in compile mode_. One example is the ; word used to end definitions. We want it to
-\ run now, not when the new word is used, which would mean it is impossible to exit compile mode.
+\ _even if it's in compile mode_. One example is the ; word used to end colon definitions. We want
+\ it to run now, not when the new word is used, because that would trap us in compile mode.
 
-\ The way IMMEDIATE is implemented is surprisingly simple. The `LATEST @ >FLAGS` part results with
-\ the address of the flags field of the relevant dictionary entry, which is then ORed with F_IMMED
-\ to set the immediate flag.
+\ The way IMMEDIATE is implemented is surprisingly simple. While the grammar of Forth is different
+\ from English grammar, it is fair to say that the literal translation would be "Set the IMMEDIATE
+\ bit of the last word defined".
+
+\ KEY-NOEOF is a word that errors on EOF, instead of just returning a zero. Since conditionals are
+\ not yet implemented, this is a simple wrapper around KEY until it gets overwritten with IS. This
+\ is fine, because we don't expect an EOF condition before this file ends (duh). We will also need
+\ a similar word, MUST-FIND, that errors if a word is not in the dictionary:
+: MUST-FIND FIND ;
+
+\ Finally, there's UNGETC, that undoes the last KEY operation. Trying to UNGETC more than once can
+\ result in... well... just don't do it.
 
 \ [ and ] can be used to temporarily enter the interpretation mode while defining a word, which is
-\ mostly useful to calculate something once and make it a number literal.
+\ most often used for compile-time expression evalutaion.
 
-\ This functionality is used while defining \, since the loop constructs are not yet available. If
-\ they were, this word would be defined as `: \ BEGIN KEY #CR = UNTIL ; IMMEDIATE`, which is surely
-\ easier to understand - skip characters until you encounter a newline.
+\ These two words are used while defining \, since loop constructs are not yet available. Consider
+\   : \ UNGETC BEGIN KEY-NOEOF #CR = UNTIL ; IMMEDIATE
+\ The UNGETC is necessary because WORD will read one whitespace character after the word. It means
+\ that an implementation of \ without UNGETC would behave incorrectly when immediately followed by
+\ a newline. You can see how simple the following loop is - skip characters until a newline. Since
+\ BEGIN and UNTIL are not available so early, we use [ and ] to simulate them. How exactly this is
+\ done will become clear once you see how control flow is done. Finally, \ is marked immediate, to
+\ make comments work correctly in compile mode.
 
-\ You might notice how a seemingly useless wrapper around KEY is declared. KEY-NOEOF will handle a
-\ spurious EOF, when it is replaced with IS (as per the description of LENGTH above).
-
-\ This word is marked as immediate to make comments work correctly in compile mode.  The way BEGIN
-\ and UNTIL are replaced in that definition should become clear when we define control flow words,
-\ but some simpler words will come first.
-
-\ ---------- THE MOST BASIC OF THE WORDS ---------------------------------------------------------
+\ ---------- THE MOST BASIC OF WORDS -------------------------------------------------------------
 
 \ Because of space restriction of stage0.asm, only some comparisons are primitive. The rest can be
 \ accomplished by inverting the result of a different comparison.
@@ -133,42 +145,46 @@
 \ CHAR will parse a word and give you its first character.
 : CHAR WORD DROP C@ ;
 
-\ 2* and 2/ are separate words to make it use the shift instructions of the processor.
+\ 2* and 2/ are separate words to make it possible to use the shift instructions of the processor.
 : 2* 1 LSHIFT ;
 
-\ 2/ is an arithmetic shift, and RSHIFT is a logical shift, so we have to preserve the top bit.
+\ 2/ is an arithmetic shift and RSHIFT is a logical shift, so we have to preserve the top bit with
+\ some bit twiddling.
 : 2/ DUP 1 RSHIFT SWAP $80000000 AND OR ;
 
 \ CELLS turns a number of cells into a number of bytes
 : CELLS 2 LSHIFT ;
+
+\ One CELL is 4 bytes
 : CELL 4 ;
+
 : CELL+ CELL + ;
 : CELL- CELL - ;
+: CHAR+ 1+ ;
+: CHAR- 1- ;
+
 : NIP SWAP DROP ;
 : TUCK SWAP OVER ;
 
 \ ---------- THE UNINTUITIVE IMPLEMENTATION OF LITERAL -------------------------------------------
 
 \ LITERAL is a compile-time word that is used to define computed number literals. Consider
-\ : SOME-WORD [ 2 2 + ] LITERAL ;
-
-\ This is equivalent to `: SOME-WORD 4 ;`, but sometimes you need to define a literal in the terms
-\ of some address or constant, or you simply want to show where the value came from - LITERAL lets
-\ you do this without a runtime penalty of recalculating the value every time it's used.
+\   : FOUR [ 2 2 + ] LITERAL ;
 
 \ LITERAL can also be used without the square bracket part - when used with POSTPONE or [COMPILE],
 \ the uglier and less versatile version of POSTPONE. The implementations of ['] is a good example.
 
-\ Consider this simpler version first: `: LITERAL ['] LIT , , ; IMMEDIATE`. Since this is not what
-\ you see below, you probably know there's something wrong with this implementation. Namely, there
-\ is a cyclic dependency - ['] is implemented using LITERAL. Therefore, we need to think about the
-\ compiled representation of this word (keep in mind that ['] does its work while compiling):
+\ Consider this simpler version first:
+\   : LITERAL ['] LIT , , ; IMMEDIATE
+\ Since it is not what you see below, you can probably infer that there's something wrong with it.
+\ Namely, there is a cyclic dependency - ['] is implemented using LITERAL. However, there is a not
+\ very complicated way out. Think about how ['] would handle the above. It's just
 
 \ +--+--+--+--+--+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 \ |  call DOCOL  |  LIT  |  LIT  |   ,   |   ,   | EXIT  |
 \ +--+--+--+--+--+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 
-\ Therefore, one can implement LITERAL as follows, with the only drawback being unintuitiveness.
+\ LIT is not IMMEDIATE, so one can implement LITERAL like this:
 : LITERAL LIT LIT , , ; IMMEDIATE
 
 \ ---------- EXECUTION TOKENS --------------------------------------------------------------------
@@ -198,10 +214,6 @@
 
 \ To create an implementation of SET-HANDLER that works like that, you should look into `POSTPONE`
 \ and `IMMEDIATE`, probably combined with `LITERAL` or `[']`.
-
-\ MUST-FIND will try to FIND a word in a dictionary, but it will ABORT instead of returning 0 when
-\ a word isn't found. This implementation will be replaced later using IS.
-: MUST-FIND FIND ;
 
 \ With >CFA available, implementing ' is a piece of cake: get a word, find it in a dictionary, and
 \ turn it into an execution token.
@@ -350,10 +362,14 @@ HIDE [COMPILE]
   THEN
 ;
 
-\ While we're at it, let's define D>S. Since
+\ While we're at it, let's define D>S.
 : D>S DROP ;
 
-\ ---------- DEFINING MULTIPLICATION AND DIVISION IN TERMS OF S>D AND D>S ------------------------
+\ ---------- MAKING USE OF CONDITIONALS: ABS -----------------------------------------------------
+
+: ABS DUP 0< IF NEGATE THEN ;
+
+\ ---------- MULTIPLICATION AND DIVISION ---------------------------------------------------------
 
 \ To save space, * and /MOD are not primitive, and are instead implemented using SM/REM or M*
 : */MOD >R M* R> SM/REM ;
@@ -464,11 +480,10 @@ HIDE [COMPILE]
 : ENDCASE
   POSTPONE DROP
   BEGIN
-    DUP 0<>
+    ?DUP
   WHILE
     POSTPONE THEN
   REPEAT
-  DROP \ drop the 0
 ; IMMEDIATE
 
 \ ---------- PARENTHESIS COMMENTS ----------------------------------------------------------------
@@ -558,7 +573,7 @@ HIDE [COMPILE]
 
 ( ---------- STRING LITERALS ------------------------------------------------------------------- )
 
-( string literals are compiled as follows:
+( string literals are compiled like this:
 
  +--+--+--+--+---+---+---+---+- - - - - - - -+
  | LITSTRING | string-length | string-itself |
@@ -731,6 +746,39 @@ HIDE (LOOP)
 HIDE (+LOOP)
 HIDE SOME-LOOP
 
+( ---------- STRING HANDLING ------------------------------------------------------------------- )
+
+: S=
+  2 PICK <> IF DROP 2DROP FALSE EXIT THEN
+  SWAP 0 ?DO
+    OVER C@ OVER C@
+    <> IF 2DROP UNLOOP FALSE EXIT THEN
+    CHAR+ SWAP CHAR+ SWAP
+  LOOP
+  2DROP TRUE EXIT
+;
+
+: SCASE 0 ; IMMEDIATE
+: SOF
+  POSTPONE 2OVER
+  POSTPONE S=
+  POSTPONE IF
+  POSTPONE 2DROP
+; IMMEDIATE
+
+: SENDOF
+  POSTPONE ELSE
+; IMMEDIATE
+
+: SENDCASE
+  POSTPONE 2DROP
+  BEGIN
+    ?DUP
+  WHILE
+    POSTPONE THEN
+  REPEAT
+; IMMEDIATE
+
 : TYPE ( c-addr u -- ) 0 ?DO DUP C@ EMIT 1+ LOOP DROP ;
 
 : ."
@@ -743,6 +791,8 @@ HIDE SOME-LOOP
 ; IMMEDIATE
 
 : COUNT ( counted-string -- string strlen ) DUP 1+ SWAP C@ ;
+
+( ---------- VARIABLES ------------------------------------------------------------------------- )
 
 : PUSH-IMM32, $68 C, , ;
 : NEXT, $AD C, $FF C, $E0 C, ;
@@ -768,8 +818,6 @@ HIDE NEXT,
 : EXECUTE [ HERE 12 + ] LITERAL !
   DROP ( this DROP is overwritten by the previous line )
 ;
-
-: ABS DUP 0< IF NEGATE THEN ;
 
 : SPACE BL EMIT ;
 : CR #CR EMIT ;
@@ -1019,7 +1067,6 @@ HIDE LENGTH-CHECK
 : 2@ DUP CELL+ @ SWAP @ ;
 : 2! SWAP OVER ! CELL+ ! ;
 : 2R@ R> 2R> 2DUP 2>R ROT >R ;
-: CHAR+ 1+ ;
 MKNOP CHARS
 : MOVE
   >R
@@ -1077,16 +1124,6 @@ MKNOP CHARS
     ." KEY-NOEOF: EOF" ABORT
   THEN
 ; IS KEY-NOEOF
-
-: S=
-  2 PICK <> IF DROP 2DROP FALSE EXIT THEN
-  SWAP 0 ?DO
-    OVER C@ OVER C@
-    <> IF 2DROP UNLOOP FALSE EXIT THEN
-    CHAR+ SWAP CHAR+ SWAP
-  LOOP
-  2DROP TRUE EXIT
-;
 
 ." 2K Linux" CR
 CONCLUDE" TEST.FRT"
