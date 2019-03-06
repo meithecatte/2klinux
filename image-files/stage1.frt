@@ -404,6 +404,10 @@ HIDE [COMPILE]
 
 : ABS DUP 0< IF NEGATE THEN ;
 
+\ ---------- MANIPULATING THE RETURN STACK -------------------------------------------------------
+
+: RDROP R> R> DROP >R ;
+
 \ ---------- MULTIPLICATION AND DIVISION ---------------------------------------------------------
 
 \ To save space, * and /MOD are not primitive, and are instead implemented using SM/REM or M*

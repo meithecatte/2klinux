@@ -994,15 +994,8 @@ RPEEK:
 	push dword[edi]
 	jmp short doNEXT
 
-link_RDROP:
-	dw $-link_RPEEK
-	db 5, 'RDROP'
-RDROP:
-	add edi, 4
-	jmp short doNEXT
-
 link_RPSTORE:
-	dw $-link_RDROP
+	dw $-link_RPEEK
 	db 3, 'RP!'
 RPSTORE:
 	pop edi
