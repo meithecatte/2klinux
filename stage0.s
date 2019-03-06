@@ -954,23 +954,8 @@ CFETCH:
 	push eax
 	NEXT
 
-link_CMOVE:
-	dw $-link_CFETCH
-	db 5, 'CMOVE'
-_CMOVE:
-	push esi
-	push edi
-	mov ecx, [esp+8]
-	mov edi, [esp+12]
-	mov esi, [esp+16]
-	rep movsb
-	pop edi
-	pop esi
-	add esp, 12
-	jmp short doNEXT
-
 link_TOR:
-	dw $-link_CMOVE
+	dw $-link_CFETCH
 	db 2, '>R'
 TOR:
 	pop eax

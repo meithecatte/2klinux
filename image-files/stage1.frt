@@ -1100,6 +1100,15 @@ HIDE LENGTH-CHECK
 : 2! SWAP OVER ! CELL+ ! ;
 : 2R@ R> 2R> 2DUP 2>R ROT >R ;
 MKNOP CHARS
+
+: CMOVE
+  0 ?DO ( src dst )
+    OVER C@
+    OVER C!
+    CHAR+ >R CHAR+ R>
+  LOOP 2DROP
+;
+
 : MOVE
   >R
   2DUP < IF
