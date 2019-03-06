@@ -1140,15 +1140,6 @@ FILE:
 	xchg edi, eax
 	NEXT
 
-link_CREATE:
-	dw $-link_FILE
-	db 11, 'CREATE-BARE'
-CREATE:
-	pop ecx
-	pop eax
-	call near doCREATE
-	NEXT
-
 doCREATE:
 	push esi
 	push edi
@@ -1168,7 +1159,7 @@ doCREATE:
 	ret
 
 link_FIND:
-	dw $-link_CREATE
+	dw $-link_FILE
 	db 4, 'FIND'
 FIND:
 	pop ecx

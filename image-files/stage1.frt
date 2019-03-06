@@ -815,6 +815,17 @@ HIDE SOME-LOOP
 : REL! ( value addr -- ) DUP >R CELL+ - R> ! ;
 : REL@ ( addr -- value ) DUP @ CELL+ + ;
 
+: CREATE-BARE      ( name u -- )
+  HERE LATEST @ -  ( name u link )
+  HERE LATEST !
+  DUP $FF AND C,
+  8 RSHIFT C,      ( name u )
+  DUP C,
+  F_LENMASK AND
+  0 ?DO DUP C@ C, CHAR+ LOOP
+  DROP
+;
+
 : CREATE
   WORD
   CREATE-BARE
@@ -827,7 +838,7 @@ MKNOP ALIGN
 MKNOP ALIGNED
 
 : CONSTANT WORD CREATE-BARE PUSH-IMM32, NEXT, ;
-: VARIABLE CREATE 4 ALLOT ;
+: VARIABLE CREATE CELL ALLOT ;
 HIDE PUSH-IMM32,
 HIDE NEXT,
 
@@ -907,7 +918,7 @@ HIDE NEXT,
 : [']      COMPILE-ONLY POSTPONE [']      ; IMMEDIATE
 : [CHAR]   COMPILE-ONLY POSTPONE [CHAR]   ; IMMEDIATE
 
-VARIABLE RECURSE-XT CELL ALLOT
+VARIABLE RECURSE-XT
 
 ( RECURSE calls the word that's currently being defined - using the name of the word directly will
   compile a call to the previous definition. This is also an example of how to use COMPILE-ONLY. )
