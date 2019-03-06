@@ -662,23 +662,69 @@ HIDE [COMPILE]
 
 HIDE COMPILE-STRING-CHARACTERS
 
+( ---------- VARIABLES ------------------------------------------------------------------------- )
+
+: PUSH-IMM32, $68 C, , ;
+: NEXT, $AD C, $FF C, $E0 C, ;
+: REL! ( value addr -- ) DUP >R CELL+ - R> ! ;
+: REL@ ( addr -- value ) DUP @ CELL+ + ;
+
+: CREATE-BARE      ( name u -- )
+  HERE LATEST @ -  ( name u link )
+  HERE LATEST !
+  DUP $FF AND C,
+  8 RSHIFT C,      ( name u )
+  DUP C,
+  F_LENMASK AND
+  BEGIN ( ptr u )
+    DUP
+  WHILE
+    >R
+    DUP C@ C,
+    CHAR+ R> 1-
+  REPEAT
+  2DROP
+;
+
+: CREATE
+  WORD
+  CREATE-BARE
+  HERE 8 + PUSH-IMM32, NEXT,
+;
+
+: MKNOP WORD CREATE-BARE NEXT, ;
+
+MKNOP ALIGN
+MKNOP ALIGNED
+
+: CONSTANT WORD CREATE-BARE PUSH-IMM32, NEXT, ;
+: VARIABLE CREATE CELL ALLOT ;
+HIDE PUSH-IMM32,
+HIDE NEXT,
+
 ( ---------- COUNTED LOOPS --------------------------------------------------------------------- )
 
-( We can now define DO, ?DO, LOOP, +LOOP and LEAVE. It would be relatively simple if LEAVE did not
-  exist, but the plan is: at first, compile LEAVE as BRANCH LEAVE. LOOP (or +LOOP) will then go to
-  the beginning of the loop and scan for branches, conditional or not, going to LEAVE, and replace
-  them with a proper destination.
+( We can now define DO, ?DO, LOOP, +LOOP and LEAVE. It would be much easier if LEAVE didn't exist,
+  but oh well. Because storing LEAVE's data on the stack would interfere with other control flow
+  inside the loop, let's store it in a variable. )
 
-  The loop control variables are stored on the return stack, with the counter on top and the limit
+VARIABLE LEAVE-PTR
+
+( Let's consider the base case: only one LEAVE in the loop. This can be trivially handled by
+  storing the address we need to patch in the variable.
+
+  This would also work quite well with nested loops. All we need to do is store the old value of
+  the variable on the stack when opening a loop.
+
+  Finally, we can extend this to an arbitrary number of LEAVEs by threading a singly-linked list
+  through the branch target address holes. )
+
+( The loop control variables are stored on the return stack, with the counter on top and the limit
   on the bottom.
 
   DO -> 2>R loop-inside
-            ^ the ending branch jumps here
-        ^ LOOP starts scanning here
 
-  ?DO -> (?DO) 0BRANCH LEAVE loop-inside
-                             ^ the ending branch jumps here
-                       ^ LOOP starts scanning here
+  ?DO -> (?DO) 0BRANCH [do the LEAVE thing but with a conditional jump] loop-inside
 )
 
 : (?DO)    ( limit counter R: retaddr -- R: limit counter retaddr )
@@ -720,52 +766,46 @@ HIDE COMPILE-STRING-CHARACTERS
   NIP SWAP >R     ( should-stop-looping? R: limit new-counter retaddr )
 ;
 
-: LEAVE
-  POSTPONE BRANCH
-  [ LATEST @ >CFA ] LITERAL ,
-; IMMEDIATE
+: LEAVE,
+  HERE
+  LEAVE-PTR @ ,
+  LEAVE-PTR !
+;
+
+: LEAVE POSTPONE BRANCH LEAVE, ; IMMEDIATE
 
 : UNLOOP
   POSTPONE 2RDROP
 ; IMMEDIATE
 
 : DO
+  LEAVE-PTR @
+  0 LEAVE-PTR !
   POSTPONE 2>R
   HERE
 ; IMMEDIATE
 
 : ?DO
+  LEAVE-PTR @
+  0 LEAVE-PTR !
   POSTPONE (?DO)
-  POSTPONE 0BRANCH
-  ['] LEAVE ,
+  POSTPONE 0BRANCH LEAVE,
   HERE
 ; IMMEDIATE
 
 : SOME-LOOP
-  POSTPONE 0BRANCH
-  DUP ,
-  HERE ( loop-beginning loop-end )
-  POSTPONE UNLOOP
-  SWAP CELL- ( loop-end curr-address )
+  POSTPONE 0BRANCH ,
+  LEAVE-PTR @
   BEGIN
-    DUP @ ['] LEAVE = IF
-      ( loop-end curr-address )
-      ( make sure it's preceded by a branch! )
-      DUP CELL- @ ( loop-end curr-address word-before )
-      DUP ['] BRANCH = SWAP ['] 0BRANCH = OR IF
-        2DUP ( loop-end curr-address loop-end curr-address ) !
-      THEN
-    THEN
-
-    DUP @ CASE
-      ['] LIT OF 2 CELLS + ENDOF
-      ['] LITSTRING OF CELL+ DUP @ CELL+ + ENDOF
-      SWAP CELL+ SWAP
-    ENDCASE
-
-    2DUP <=
-  UNTIL
-  2DROP
+    DUP
+  WHILE
+    DUP @ >R
+    HERE SWAP !
+    R>
+  REPEAT
+  DROP
+  POSTPONE UNLOOP
+  LEAVE-PTR !
 ;
 
 : LOOP
@@ -835,40 +875,6 @@ HIDE SOME-LOOP
 ; IMMEDIATE
 
 : COUNT ( counted-string -- string strlen ) DUP 1+ SWAP C@ ;
-
-( ---------- VARIABLES ------------------------------------------------------------------------- )
-
-: PUSH-IMM32, $68 C, , ;
-: NEXT, $AD C, $FF C, $E0 C, ;
-: REL! ( value addr -- ) DUP >R CELL+ - R> ! ;
-: REL@ ( addr -- value ) DUP @ CELL+ + ;
-
-: CREATE-BARE      ( name u -- )
-  HERE LATEST @ -  ( name u link )
-  HERE LATEST !
-  DUP $FF AND C,
-  8 RSHIFT C,      ( name u )
-  DUP C,
-  F_LENMASK AND
-  0 ?DO DUP C@ C, CHAR+ LOOP
-  DROP
-;
-
-: CREATE
-  WORD
-  CREATE-BARE
-  HERE 8 + PUSH-IMM32, NEXT,
-;
-
-: MKNOP WORD CREATE-BARE NEXT, ;
-
-MKNOP ALIGN
-MKNOP ALIGNED
-
-: CONSTANT WORD CREATE-BARE PUSH-IMM32, NEXT, ;
-: VARIABLE CREATE CELL ALLOT ;
-HIDE PUSH-IMM32,
-HIDE NEXT,
 
 : EXECUTE [ HERE 12 + ] LITERAL !
   DROP ( this DROP is overwritten by the previous line )
@@ -956,7 +962,7 @@ RETRO LITERAL
 RETRO [']
 RETRO [CHAR]
 
-FORGET RETRO
+HIDE RETRO
 
 VARIABLE RECURSE-XT
 
