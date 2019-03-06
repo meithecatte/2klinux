@@ -152,6 +152,7 @@
 
 \ ---------- THE MOST BASIC OF WORDS -------------------------------------------------------------
 
+: INVERT -1 XOR ;
 \ Because of space restriction of stage0.asm, only some comparisons are primitive. The rest can be
 \ accomplished by inverting the result of a different comparison.
 : <> = INVERT ;
@@ -204,7 +205,7 @@
 : CHAR WORD DROP C@ ;
 
 \ 2* and 2/ are separate words to make it possible to use the shift instructions of the processor.
-: 2* 1 LSHIFT ;
+: 2* DUP + ;
 
 \ 2/ is an arithmetic shift and RSHIFT is a logical shift, so we have to preserve the top bit with
 \ some bit twiddling.
@@ -217,7 +218,7 @@
 ;
 
 \ CELLS turns a number of cells into a number of bytes
-: CELLS 2 LSHIFT ;
+: CELLS DUP + DUP + ;
 
 \ ---------- THE UNINTUITIVE IMPLEMENTATION OF LITERAL -------------------------------------------
 
@@ -777,6 +778,8 @@ HIDE (?DO)
 HIDE (LOOP)
 HIDE (+LOOP)
 HIDE SOME-LOOP
+
+: LSHIFT 0 ?DO DUP + LOOP ;
 
 ( ---------- STRING HANDLING ------------------------------------------------------------------- )
 

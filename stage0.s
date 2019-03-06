@@ -862,23 +862,8 @@ _XOR:
 	xor dword[esp], eax
 	NEXT
 
-link_INVERT:
-	dw $-link_XOR
-	db 6, 'INVERT'
-INVERT:
-	not dword[esp]
-	NEXT
-
-link_LSHIFT:
-	dw $-link_INVERT
-	db 6, 'LSHIFT'
-LSHIFT:
-	pop ecx
-	shl dword[esp], cl
-	NEXT
-
 link_RSHIFT:
-	dw $-link_LSHIFT
+	dw $-link_XOR
 	db 6, 'RSHIFT'
 RSHIFT:
 	pop ecx
