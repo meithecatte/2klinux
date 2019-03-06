@@ -936,26 +936,8 @@ doCOMMA:
 	add dword[edx], 4
 	ret
 
-link_CSTORE:
-	dw $-link_COMMA
-	db 2, 'C!'
-CSTORE:
-	pop ebx
-	pop eax
-	mov [ebx], al
-	NEXT
-
-link_CFETCH:
-	dw $-link_CSTORE
-	db 2, 'C@'
-CFETCH:
-	pop eax
-	movzx eax, byte[eax]
-	push eax
-	NEXT
-
 link_TOR:
-	dw $-link_CFETCH
+	dw $-link_COMMA
 	db 2, '>R'
 TOR:
 	pop eax

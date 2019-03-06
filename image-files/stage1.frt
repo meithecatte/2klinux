@@ -26,6 +26,14 @@
 : XOR! DUP @ ROT XOR SWAP ! ;
 : AND! DUP @ ROT AND SWAP ! ;
 
+: C@ @ $FF AND ;
+: C!
+  DUP @
+  $FFFFFF00 AND
+  ROT OR
+  SWAP !
+;
+
 : COR!  DUP C@ ROT OR  SWAP C! ;
 : CXOR! DUP C@ ROT XOR SWAP C! ;
 : CAND! DUP C@ ROT AND SWAP C! ;
