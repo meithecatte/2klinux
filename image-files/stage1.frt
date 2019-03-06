@@ -42,7 +42,24 @@
 : [ FALSE STATE ! ; IMMEDIATE
 : ] TRUE STATE ! ;
 
-: \ UNGETC [ HERE ] KEY-NOEOF #CR = 0BRANCH [ , ] ; IMMEDIATE
+: CELL 4 ;
+
+: CELL+ CELL + ;
+: CELL- CELL - ;
+: CHAR+ 1+ ;
+: CHAR- 1- ;
+
+: COMPILE R> DUP @ , CELL+ >R ;
+
+: BEGIN HERE ; IMMEDIATE
+: UNTIL COMPILE 0BRANCH , ; IMMEDIATE
+: AGAIN COMPILE BRANCH , ; IMMEDIATE
+
+: \ UNGETC
+  BEGIN
+    KEY-NOEOF #CR =
+  UNTIL
+; IMMEDIATE
 
 \ ---------- AN EXPLANATION OF WHAT HAS JUST HAPPENED --------------------------------------------
 
@@ -150,19 +167,18 @@
 
 \ 2/ is an arithmetic shift and RSHIFT is a logical shift, so we have to preserve the top bit with
 \ some bit twiddling.
-: 2/ DUP 1 RSHIFT SWAP $80000000 AND OR ;
+: 2/            \ ( x )
+  DUP           \ ( x x )
+  1 RSHIFT      \ ( x x>>1 )
+  SWAP          \ ( x>>1 x )
+  $80000000 AND \ ( x>>1 topbit )
+  OR
+;
 
 \ CELLS turns a number of cells into a number of bytes
 : CELLS 2 LSHIFT ;
 
 \ One CELL is 4 bytes
-: CELL 4 ;
-
-: CELL+ CELL + ;
-: CELL- CELL - ;
-: CHAR+ 1+ ;
-: CHAR- 1- ;
-
 : NIP SWAP DROP ;
 : TUCK SWAP OVER ;
 
@@ -237,13 +253,6 @@
 
 \ [COMPILE] IF is equivalent to [ ' IF , ]
 : [COMPILE] ' , ; IMMEDIATE
-
-\ COMPILE DROP is equivalent to ['] DROP ,
-: COMPILE R> \ get a pointer to the execution token of the word after COMPILE
-  DUP @ ,    \ compile that execution token
-  CELL+      \ move the pointer so that the word that has just been compiled won't get executed
-  >R         \ put the pointer back on the return stack
-;
 
 \ ---------- MAKING USE OF LITERAL - ['] and [CHAR] ----------------------------------------------
 
@@ -407,13 +416,8 @@ HIDE [COMPILE]
 \    \__________________________/
 
 \ BEGIN: save a branch destination for later consumption
-: BEGIN HERE ; IMMEDIATE
-
 \ UNTIL: compile a conditional branch using the destination left on the stack by BEGIN
-: UNTIL POSTPONE 0BRANCH , ; IMMEDIATE
-
 \ A similar loop variant is BEGIN AGAIN - an infinite loop, unless stopped by EXIT
-: AGAIN POSTPONE BRANCH , ; IMMEDIATE
 
 \ More advanced is the BEGIN WHILE REPEAT loop - run the part between BEGIN and WHILE, and if that
 \ leaves TRUE on the stack, run the part between WHILE and REPEAT, then loop back to the beginning
