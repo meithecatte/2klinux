@@ -407,6 +407,7 @@ HIDE [COMPILE]
 \ ---------- MANIPULATING THE RETURN STACK -------------------------------------------------------
 
 : RDROP R> R> DROP >R ;
+: R@ R> R> DUP >R SWAP >R ;
 
 \ ---------- MULTIPLICATION AND DIVISION ---------------------------------------------------------
 

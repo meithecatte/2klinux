@@ -987,15 +987,8 @@ FROMR:
 	add edi, 4
 	jmp short doNEXT
 
-link_RPEEK:
-	dw $-link_FROMR
-	db 2, 'R@'
-RPEEK:
-	push dword[edi]
-	jmp short doNEXT
-
 link_RPSTORE:
-	dw $-link_RPEEK
+	dw $-link_FROMR
 	db 3, 'RP!'
 RPSTORE:
 	pop edi
