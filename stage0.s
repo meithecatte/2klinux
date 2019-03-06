@@ -1111,17 +1111,6 @@ doWORD:
 	call near CallRM
 	dw Error
 
-link_NUMBER:
-	dw $-link_WORD
-	db 6, 'NUMBER'
-NUMBER:
-	pop ecx
-	pop eax
-	call near doNUMBER
-	push eax
-	push ecx
-	NEXT
-
 ; Parses a number
 ; Input:
 ;  ECX = string length
@@ -1173,7 +1162,7 @@ doNUMBER:
 	ret
 
 link_EMIT:
-	dw $-link_NUMBER
+	dw $-link_WORD
 	db 4, 'EMIT'
 EMIT:
 	pop eax
