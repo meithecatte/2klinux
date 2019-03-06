@@ -659,38 +659,16 @@ NROT:
 	push ebx
 	NEXT
 
-link_INC:
-	dw $-link_NROT
-	db 2, '1+'
-_INC:
-	inc dword[esp]
-	NEXT
-
-link_DEC:
-	dw $-link_INC
-	db 2, '1-'
-_DEC:
-	dec dword[esp]
-	NEXT
-
 link_ADD:
-	dw $-link_DEC
+	dw $-link_NROT
 	db 1, '+'
 _ADD:
 	pop eax
 	add dword[esp], eax
 	NEXT
 
-link_SUB:
-	dw $-link_ADD
-	db 1, '-'
-_SUB:
-	pop eax
-	sub dword[esp], eax
-	NEXT
-
 link_SMDIVREM:
-	dw $-link_SUB
+	dw $-link_ADD
 	db 6, 'SM/REM'
 SMDIVREM:
 	pop ecx

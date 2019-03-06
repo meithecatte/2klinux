@@ -21,6 +21,13 @@
 : FALSE 0 ;
 : TRUE -1 ;
 
+: 1+  1 + ;
+: 1- -1 + ;
+
+: INVERT -1 XOR ;
+: NEGATE INVERT 1+ ;
+: - NEGATE + ;
+
 : +!   DUP @ ROT +   SWAP ! ;
 : -!   DUP @ ROT -   SWAP ! ;
 : OR!  DUP @ ROT OR  SWAP ! ;
@@ -152,29 +159,23 @@
 
 \ ---------- THE MOST BASIC OF WORDS -------------------------------------------------------------
 
-: INVERT -1 XOR ;
 \ Because of space restriction of stage0.asm, only some comparisons are primitive. The rest can be
 \ accomplished by combining other comparisons.
+: 0= 0 = ;
+: 0<> 0= INVERT ;
+: 0< $80000000 AND 0<> ;
+: 0>= 0< INVERT ;
+: 0<= DUP 0= SWAP 0< OR ;
+: 0> 0<= INVERT ;
+
 : <> = INVERT ;
 : >= < INVERT ;
 : <= OVER OVER = >R < R> OR ;
 : > <= INVERT ;
 
-: 0= 0 = ;
-: 0< 0 < ;
-: 0<> 0= INVERT ;
-: 0>= 0< INVERT ;
-: 0<= DUP 0= SWAP 0< OR ;
-: 0> 0<= INVERT ;
-
 : U>= U< INVERT ;
 : U<= OVER OVER = >R U< R> OR ;
 : U> U<= INVERT ;
-
-\ The way one should implement NEGATE depends on the way the computer represents negative numbers.
-\ The system most computers use is called the two's complement, and in that case you should invert
-\ all the bits and add one to compute the additive inverse.
-: NEGATE INVERT 1+ ;
 
 : WHILE \ ( ptr2-val -- ptr1-addr ptr2-val )
   COMPILE 0BRANCH
@@ -223,7 +224,7 @@
 ;
 
 \ CELLS turns a number of cells into a number of bytes
-: CELLS DUP + DUP + ;
+: CELLS 2* 2* ;
 
 \ ---------- THE UNINTUITIVE IMPLEMENTATION OF LITERAL -------------------------------------------
 
