@@ -159,6 +159,36 @@
 \ all the bits and add one to compute the additive inverse.
 : NEGATE INVERT 1+ ;
 
+: WHILE \ ( ptr2-val -- ptr1-addr ptr2-val )
+  COMPILE 0BRANCH
+  HERE             \ ( ptr2-val ptr1-addr )
+  0 ,              \ a dummy destination
+  SWAP
+; IMMEDIATE
+
+: REPEAT \ ( ptr1-addr ptr2-val -- )
+  COMPILE BRANCH
+  ,      \ ( ptr1-addr )
+  HERE   \ resolve ptr1
+  SWAP !
+; IMMEDIATE
+
+: NIP SWAP DROP ;
+: TUCK SWAP OVER ;
+
+\ WORD is implemented in stage0, but not exposed.
+: WORD
+  BEGIN KEY-NOEOF DUP BL <= WHILE DROP REPEAT
+  $7DDE SWAP
+  BEGIN \ ( addr c )
+    OVER C!
+    CHAR+
+    KEY DUP BL <=
+  UNTIL
+  DROP \ ( addr )
+  $7DDE TUCK -
+;
+
 \ CHAR will parse a word and give you its first character.
 : CHAR WORD DROP C@ ;
 
@@ -177,10 +207,6 @@
 
 \ CELLS turns a number of cells into a number of bytes
 : CELLS 2 LSHIFT ;
-
-\ One CELL is 4 bytes
-: NIP SWAP DROP ;
-: TUCK SWAP OVER ;
 
 \ ---------- THE UNINTUITIVE IMPLEMENTATION OF LITERAL -------------------------------------------
 
@@ -429,20 +455,6 @@ HIDE [COMPILE]
 \ | condition |  0BRANCH  | ptr1  | inside  |  BRANCH   | ptr2  | after
 \ +- - - - - -+--+--+--+--+-+ | +-+- - - - -+--+--+--+--+-+-+-+-+  ^
 \                             \____________________________________/
-
-: WHILE \ ( ptr2-val -- ptr1-addr ptr2-val )
-  POSTPONE 0BRANCH
-  HERE             \ ( ptr2-val ptr1-addr )
-  0 ,              \ a dummy destination
-  SWAP
-; IMMEDIATE
-
-: REPEAT \ ( ptr1-addr ptr2-val -- )
-  POSTPONE BRANCH
-  ,      \ ( ptr1-addr )
-  HERE   \ resolve ptr1
-  SWAP !
-; IMMEDIATE
 
 \ ---------- CASE STATEMENTS ---------------------------------------------------------------------
 

@@ -219,7 +219,7 @@ FindFile:
 ; If the filename starts with a zero, the directory ended, which means we couldn't find the file.
 	mov al, byte[si]
 	or al, al
-	jz short NotFoundError
+	jz short .notfound
 ; Usually, one should check whether the first byte is 0xE5 (if so, you should skip the entry), but
 ; it won't won't match the filename anyway.
 
@@ -263,9 +263,11 @@ FindFile:
 	call near ReadNextCluster
 	pop di
 	jnc short FindFile
+.notfound:
+	mov cx, 13
 NotFoundError:
 	mov si, di
-	call near PrintText
+	call near PrintTextLength
 	mov si, NotFoundMsg
 	jmp short Error
 
@@ -354,29 +356,30 @@ PrintChar:
 
 PrintText:
 	lodsb
-	or al, al
-	jz short ..@Return
+	movzx cx, al
+PrintTextLength:
+	lodsb
 	call near PrintChar
-	jmp short PrintText
+	loop short PrintTextLength
+	ret
 
-; NULL terminators in filenames are only necessary for error handling
 StageZeroFilename:
-	db 'STAGE0  BIN', 0
+	db 'STAGE0  BIN'
 
 NotFoundMsg:
-	db ' NOTFOUND', 0
+	db 9, ' NOTFOUND'
 
 A20ErrorMsg:
-	db 'A20', 0
+	db 3, 'A20'
 
 DiskErrorMsg:
-	db ' DISK', 0
+	db 5, ' DISK'
 
 GenericErrorMsg:
-	db ' ERROR', 0
+	db 5, 'ERROR'
 
 EOFMessage:
-	db 'EOF',0
+	db 3, 'EOF'
 
 GDT:
 	dw GDT_End-GDT-1
@@ -424,14 +427,6 @@ KBC_SendCommand:
 	lodsb
 	out 0x64, al
 	jmp si
-
-BITS 32
-DOCOL:
-	sub edi, 4
-	mov [edi], esi
-	pop esi
-	NEXT
-BITS 16
 
 MBR_FREESPACE EQU 446 - ($ - $$)
 	times MBR_FREESPACE db 0
@@ -558,7 +553,13 @@ BITS 32
 ; direct threaded code. Also, the link fields in the dictionary are relative.
 
 StageOneFilename:
-	db 'STAGE1  FRT', 0
+	db 'STAGE1  FRT'
+
+DOCOL:
+	sub edi, 4
+	mov [edi], esi
+	pop esi
+	NEXT
 
 PM_Entry:
 	mov di, StageOneFilename
@@ -1079,15 +1080,6 @@ doKEY:
 .end:
 	ret
 
-link_WORD:
-	dw $-link_KEY
-	db 4, 'WORD'
-_WORD:
-	call near doWORD
-	push eax
-	push ecx
-	NEXT
-
 doWORD:
 	call near doKEY
 	or al, al
@@ -1111,58 +1103,8 @@ doWORD:
 	call near CallRM
 	dw Error
 
-; Parses a number
-; Input:
-;  ECX = string length
-;  EAX = string buffer
-; Output:
-;  EAX = the number represented in the string buffer
-;  ECX = the number of unparsed characters (may indicate a failure)
-doNUMBER:
-	xchg eax, esi
-	push eax
-	mov word[.negate_patch], 0x9066 ; two byte nop - assume we don't need to negate
-	xor ebx, ebx
-	mul ebx      ; zeroes EAX, EBX and EDX
-	mov dl, 10
-	mov bl, [esi]
-	cmp bl, '$'
-	jne .nothex
-	mov dl, 16
-	inc esi
-	dec ecx
-.nothex:
-	cmp bl, '-'
-	jne .loop
-	mov word[.negate_patch], 0xd8f7
-	inc esi
-	dec ecx
-.loop:
-	mov bl, [esi]
-	sub bl, '0'
-	jb .end
-	cmp bl, 9
-	jbe .gotdigit
-	sub bl, 'A' - '0'
-	jb .end
-	add bl, 10
-.gotdigit:
-	cmp bl, dl
-	jae .end
-	push edx
-	mul edx
-	add eax, ebx
-	pop edx
-	inc esi
-	loop .loop
-.end:
-.negate_patch:
-	dw 0xd8f7 ; either `neg eax' or `nop'
-	pop esi
-	ret
-
 link_EMIT:
-	dw $-link_WORD
+	dw $-link_KEY
 	db 4, 'EMIT'
 EMIT:
 	pop eax
@@ -1344,10 +1286,50 @@ INTERPRET:
 	jmp eax
 
 .handle_number:
-	mov eax, WORDBuffer
-	call near doNUMBER
+	push ecx
+	push esi
+	mov esi, WORDBuffer
+	mov word[.negate_patch], 0x9066 ; two byte nop - assume we don't need to negate
+	xor ebx, ebx
+	mul ebx      ; zeroes EAX, EBX and EDX
+	mov dl, 10
+	mov bl, [esi]
+	cmp bl, '$'
+	jne .nothex
+	mov dl, 16
+	inc esi
+	dec ecx
+.nothex:
+	cmp bl, '-'
+	jne .loop
+	mov word[.negate_patch], 0xd8f7
+	inc esi
+	dec ecx
+.loop:
+	mov bl, [esi]
+	sub bl, '0'
+	jb .end
+	cmp bl, 9
+	jbe .gotdigit
+	sub bl, 'A' - '0'
+	jb .end
+	add bl, 10
+.gotdigit:
+	cmp bl, dl
+	jae .end
+	push edx
+	mul edx
+	add eax, ebx
+	pop edx
+	inc esi
+	loop .loop
+.end:
+.negate_patch:
+	dw 0xd8f7 ; either `neg eax' or `nop'
+	pop esi
 
 	or ecx, ecx
+	pop ecx
 	jnz .error
 
 	mov ebx, [ebp+dSTATE]
