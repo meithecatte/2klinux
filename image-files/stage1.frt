@@ -154,17 +154,22 @@
 
 : INVERT -1 XOR ;
 \ Because of space restriction of stage0.asm, only some comparisons are primitive. The rest can be
-\ accomplished by inverting the result of a different comparison.
+\ accomplished by combining other comparisons.
 : <> = INVERT ;
 : >= < INVERT ;
-: <= > INVERT ;
+: <= OVER OVER = >R < R> OR ;
+: > <= INVERT ;
 
+: 0= 0 = ;
+: 0< 0 < ;
 : 0<> 0= INVERT ;
 : 0>= 0< INVERT ;
-: 0<= 0> INVERT ;
+: 0<= DUP 0= SWAP 0< OR ;
+: 0> 0<= INVERT ;
 
 : U>= U< INVERT ;
-: U<= U> INVERT ;
+: U<= OVER OVER = >R U< R> OR ;
+: U> U<= INVERT ;
 
 \ The way one should implement NEGATE depends on the way the computer represents negative numbers.
 \ The system most computers use is called the two's complement, and in that case you should invert

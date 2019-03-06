@@ -763,57 +763,8 @@ LT:
 	push eax
 	NEXT
 
-link_GT:
-	dw $-link_LT
-	db 1, '>'
-GT:
-	pop ecx
-	pop ebx
-	xor eax, eax
-	cmp ebx, ecx
-	setng al
-	dec eax
-	push eax
-	NEXT
-
-link_ZEQ:
-	dw $-link_GT
-	db 2, '0='
-ZEQ:
-	pop ebx
-	xor eax, eax
-	test ebx, ebx
-	setne al
-	dec eax
-	push eax
-	NEXT
-
-link_ZLT:
-	dw $-link_ZEQ
-	db 2, '0<'
-ZLT:
-	pop ebx
-	xor eax, eax
-	test ebx, ebx
-	setnl al
-	dec eax
-	push eax
-	NEXT
-
-link_ZGT:
-	dw $-link_ZLT
-	db 2, '0>'
-ZGT:
-	pop ebx
-	xor eax, eax
-	test ebx, ebx
-	setng al
-	dec eax
-	push eax
-	NEXT
-
 link_ULT:
-	dw $-link_ZGT
+	dw $-link_LT
 	db 2, 'U<'
 ULT:
 	pop ecx
@@ -825,21 +776,8 @@ ULT:
 	push eax
 	NEXT
 
-link_UGT:
-	dw $-link_ULT
-	db 2, 'U>'
-UGT:
-	pop ecx
-	pop ebx
-	xor eax, eax
-	cmp ebx, ecx
-	setna al
-	dec eax
-	push eax
-	NEXT
-
 link_AND:
-	dw $-link_UGT
+	dw $-link_ULT
 	db 3, 'AND'
 _AND:
 	pop eax
