@@ -8,7 +8,6 @@
 
 : HERE    $7C1C @ ;
 : HERE!   $7C1C ! ;
-: ALLOT   $7C1C +! ;
 : ROOT $882C @ LOAD ;
 
 : F_IMMED   $80 ;
@@ -22,6 +21,8 @@
 : FALSE 0 ;
 : TRUE -1 ;
 
+: +!   DUP @ ROT +   SWAP ! ;
+: -!   DUP @ ROT -   SWAP ! ;
 : OR!  DUP @ ROT OR  SWAP ! ;
 : XOR! DUP @ ROT XOR SWAP ! ;
 : AND! DUP @ ROT AND SWAP ! ;
@@ -57,6 +58,8 @@
 : CHAR+ 1+ ;
 : CHAR- 1- ;
 
+: ALLOT HERE + HERE! ;
+: , HERE CELL ALLOT ! ;
 : COMPILE R> DUP @ , CELL+ >R ;
 
 : BEGIN HERE ; IMMEDIATE

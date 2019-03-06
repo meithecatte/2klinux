@@ -903,32 +903,6 @@ FETCH:
 	push eax
 	NEXT
 
-link_ADDSTORE:
-	dw $-link_FETCH
-	db 2, '+!'
-ADDSTORE:
-	pop ebx
-	pop eax
-	add [ebx], eax
-	NEXT
-
-link_SUBSTORE:
-	dw $-link_ADDSTORE
-	db 2, '-!'
-SUBSTORE:
-	pop ebx
-	pop eax
-	sub [ebx], eax
-	NEXT
-
-link_COMMA:
-	dw $-link_SUBSTORE
-	db 1, ','
-COMMA:
-	pop eax
-	call near doCOMMA
-	NEXT
-
 doCOMMA:
 	lea edx, [ebp+dHERE]
 	mov ebx, [edx]
@@ -937,7 +911,7 @@ doCOMMA:
 	ret
 
 link_TOR:
-	dw $-link_COMMA
+	dw $-link_FETCH
 	db 2, '>R'
 TOR:
 	pop eax
