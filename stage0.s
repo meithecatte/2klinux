@@ -588,16 +588,13 @@ QUIT:
 ; ( -- )
 ; Return to executing its callee. Appended automatically by `;` at the end of all definitions, but
 ; may be used explicitly, usually conditionally
-link_EXIT:
-	dw 0
-	db 4, 'EXIT'
 EXIT:
 	mov esi, [edi]
 	add edi, 4
 	NEXT
 
 link_LIT:
-	dw $-link_EXIT
+	dw 0
 	db 3, 'LIT'
 LIT:
 	lodsd

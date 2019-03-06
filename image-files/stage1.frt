@@ -427,6 +427,9 @@ HIDE [COMPILE]
 : RDROP R> R> DROP >R ;
 : R@ R> R> DUP >R SWAP >R ;
 
+\ Drop the address that points to the routine we're exiting from.
+: EXIT RDROP ;
+
 \ ---------- MULTIPLICATION AND DIVISION ---------------------------------------------------------
 
 \ To save space, * and /MOD are not primitive, and are instead implemented using SM/REM or M*
