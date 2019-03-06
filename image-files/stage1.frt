@@ -1,4 +1,3 @@
-: R0      $1500 ;
 : S0      $7C00 ;
 : BLK     $7C10 ;
 : >IN     $7C14 ;
@@ -27,6 +26,25 @@
 : INVERT -1 XOR ;
 : NEGATE INVERT 1+ ;
 : - NEGATE + ;
+
+: CELL 4 ;
+
+: CELL+ CELL + ;
+: CELL- CELL - ;
+: CHAR+ 1+ ;
+: CHAR- 1- ;
+
+: DROP SP@ CELL+ SP! ;
+: DUP SP@ @ ;
+: OVER SP@ CELL+ @ ;
+: NIP >R DROP R> ;
+: SWAP
+  OVER >R
+  NIP
+  R>
+;
+: TUCK SWAP OVER ;
+: -ROT ROT ROT ;
 
 : +!   DUP @ ROT +   SWAP ! ;
 : -!   DUP @ ROT -   SWAP ! ;
@@ -58,13 +76,6 @@
 : [ FALSE STATE ! ; IMMEDIATE
 : ] TRUE STATE ! ;
 
-: CELL 4 ;
-
-: CELL+ CELL + ;
-: CELL- CELL - ;
-: CHAR+ 1+ ;
-: CHAR- 1- ;
-
 : ALLOT HERE + HERE! ;
 : , HERE CELL ALLOT ! ;
 : COMPILE R> DUP @ , CELL+ >R ;
@@ -88,7 +99,6 @@
 
 \ At the very beginning of this file, a few words that need to hardcode addresses are defined. The
 \ first batch contains simple constants:
-\ R0 - the initial value of the return stack pointer
 \ S0 - the initial value of the data stack pointer
 \ BLK - holds the cluster number of the currently loaded cluster
 \ >IN - holds the offset in the cluster buffer of the first unparsed character. Together with BLK,
@@ -191,9 +201,6 @@
   SWAP !
 ; IMMEDIATE
 
-: NIP SWAP DROP ;
-: TUCK SWAP OVER ;
-
 \ WORD is implemented in stage0, but not exposed.
 : WORD
   BEGIN KEY-NOEOF DUP BL <= WHILE DROP REPEAT
@@ -243,6 +250,9 @@
 \ +--+--+--+--+--+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 \ |  call DOCOL  |  LIT  |  LIT  |   ,   |   ,   | EXIT  |
 \ +--+--+--+--+--+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+
+\ This already exists in stage0, but it's not exposed in the dictionary due to space concerns.
+: LIT R> DUP @ SWAP CELL+ >R ;
 
 \ LIT is not IMMEDIATE, so one can implement LITERAL like this:
 : LITERAL LIT LIT , , ; IMMEDIATE

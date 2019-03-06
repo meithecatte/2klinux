@@ -268,8 +268,7 @@ FindFile:
 NotFoundError:
 	mov si, di
 	call near PrintTextLength
-	mov si, NotFoundMsg
-	jmp short Error
+	jmp short PrintGenericErrorMsg
 
 ReadNextCluster:
 ; one FAT entry is 4 bytes, a sector is 512 bytes, 512 / 4 = 128, log_2 128 = 7
@@ -334,6 +333,7 @@ DiskRead:
 	; fallthrough
 Error:
 	call near PrintText
+PrintGenericErrorMsg:
 	mov si, GenericErrorMsg
 	call near PrintText
 	cli
@@ -366,17 +366,14 @@ PrintTextLength:
 StageZeroFilename:
 	db 'STAGE0  BIN'
 
-NotFoundMsg:
-	db 9, ' NOTFOUND'
-
 A20ErrorMsg:
 	db 3, 'A20'
 
 DiskErrorMsg:
-	db 5, ' DISK'
+	db 3, 'DSK'
 
 GenericErrorMsg:
-	db 5, 'ERROR'
+	db 4, ' ERR'
 
 EOFMessage:
 	db 3, 'EOF'
@@ -555,12 +552,6 @@ BITS 32
 StageOneFilename:
 	db 'STAGE1  FRT'
 
-DOCOL:
-	sub edi, 4
-	mov [edi], esi
-	pop esi
-	NEXT
-
 PM_Entry:
 	mov di, StageOneFilename
 	call near CallRM
@@ -578,7 +569,6 @@ PM_Entry:
 	xchg edi, eax
 	; fallthrough
 
-; Clear the return stack and invoke the INTERPRETer repeatedly
 QUIT:
 	call near DOCOL
 .loop:
@@ -591,49 +581,15 @@ QUIT:
 EXIT:
 	mov esi, [edi]
 	add edi, 4
-	NEXT
+	jmp short doNEXT
 
-link_LIT:
-	dw 0
-	db 3, 'LIT'
 LIT:
 	lodsd
 	push eax
-	NEXT
-
-link_DROP:
-	dw $-link_LIT
-	db 4, 'DROP'
-DROP:
-	pop eax
-	NEXT
-
-link_SWAP:
-	dw $-link_DROP
-	db 4, 'SWAP'
-SWAP:
-	pop eax
-	pop ebx
-	push eax
-	push ebx
-	NEXT
-
-link_DUP:
-	dw $-link_SWAP
-	db 3, 'DUP'
-DUP:
-	push dword[esp]
-	NEXT
-
-link_OVER:
-	dw $-link_DUP
-	db 4, 'OVER'
-OVER:
-	push dword[esp+4]
-	NEXT
+	jmp short doNEXT
 
 link_ROT:
-	dw $-link_OVER
+	dw 0
 	db 3, 'ROT'
 ROT:
 	pop eax
@@ -642,27 +598,15 @@ ROT:
 	push ebx
 	push eax
 	push ecx
-	NEXT
-
-link_NROT:
-	dw $-link_ROT
-	db 4, '-ROT'
-NROT:
-	pop eax
-	pop ebx
-	pop ecx
-	push eax
-	push ecx
-	push ebx
-	NEXT
+	jmp short doNEXT
 
 link_ADD:
-	dw $-link_NROT
+	dw $-link_ROT
 	db 1, '+'
 _ADD:
 	pop eax
 	add dword[esp], eax
-	NEXT
+	jmp short doNEXT
 
 link_SMDIVREM:
 	dw $-link_ADD
@@ -674,7 +618,7 @@ SMDIVREM:
 	idiv ecx
 	push edx
 	push eax
-	NEXT
+	jmp short doNEXT
 
 link_UMDIVMOD:
 	dw $-link_SMDIVREM
@@ -686,7 +630,7 @@ UMDIVMOD:
 	div ecx
 	push edx
 	push eax
-	NEXT
+	jmp short doNEXT
 
 link_MMUL:
 	dw $-link_UMDIVMOD
@@ -698,7 +642,7 @@ MMUL:
 	imul ebx
 	push eax
 	push edx
-	NEXT
+	jmp short doNEXT
 
 link_UMMUL:
 	dw $-link_MMUL
@@ -710,7 +654,7 @@ UMMUL:
 	mul ebx
 	push eax
 	push edx
-	NEXT
+	jmp short doNEXT
 
 link_EQ:
 	dw $-link_UMMUL
@@ -723,6 +667,13 @@ EQ:
 	setne al
 	dec eax
 	push eax
+	jmp short doNEXT
+
+DOCOL:
+	sub edi, 4
+	mov [edi], esi
+	pop esi
+doNEXT:
 	NEXT
 
 link_LT:
@@ -736,7 +687,7 @@ LT:
 	setnl al
 	dec eax
 	push eax
-	NEXT
+	jmp short doNEXT
 
 link_ULT:
 	dw $-link_LT
@@ -749,7 +700,7 @@ ULT:
 	setnb al
 	dec eax
 	push eax
-	NEXT
+	jmp short doNEXT
 
 link_AND:
 	dw $-link_ULT
@@ -757,7 +708,7 @@ link_AND:
 _AND:
 	pop eax
 	and dword[esp], eax
-	NEXT
+	jmp short doNEXT
 
 link_OR:
 	dw $-link_AND
@@ -765,7 +716,7 @@ link_OR:
 _OR:
 	pop eax
 	or dword[esp], eax
-	NEXT
+	jmp short doNEXT
 
 link_XOR:
 	dw $-link_OR
@@ -773,7 +724,7 @@ link_XOR:
 _XOR:
 	pop eax
 	xor dword[esp], eax
-	NEXT
+	jmp short doNEXT
 
 link_RSHIFT:
 	dw $-link_XOR
@@ -781,7 +732,7 @@ link_RSHIFT:
 RSHIFT:
 	pop ecx
 	shr dword[esp], cl
-	NEXT
+	jmp short doNEXT
 
 link_STORE:
 	dw $-link_RSHIFT
@@ -790,7 +741,7 @@ STORE:
 	pop ebx
 	pop eax
 	mov [ebx], eax
-	NEXT
+	jmp short doNEXT
 
 link_FETCH:
 	dw $-link_STORE
@@ -799,14 +750,7 @@ FETCH:
 	pop eax
 	mov eax, [eax]
 	push eax
-	NEXT
-
-doCOMMA:
-	lea edx, [ebp+dHERE]
-	mov ebx, [edx]
-	mov [ebx], eax
-	add dword[edx], 4
-	ret
+	jmp short doNEXT
 
 link_TOR:
 	dw $-link_FETCH
@@ -815,8 +759,8 @@ TOR:
 	pop eax
 	sub edi, 4
 	mov [edi], eax
-doNEXT:
-	NEXT
+doNEXT2:
+	jmp short doNEXT
 
 link_FROMR:
 	dw $-link_TOR
@@ -824,28 +768,21 @@ link_FROMR:
 FROMR:
 	push dword[edi]
 	add edi, 4
-	jmp short doNEXT
-
-link_RPSTORE:
-	dw $-link_FROMR
-	db 3, 'RP!'
-RPSTORE:
-	pop edi
-	jmp short doNEXT
+	jmp short doNEXT2
 
 link_RPFETCH:
-	dw $-link_RPSTORE
+	dw $-link_FROMR
 	db 3, 'RP@'
 RPFETCH:
 	push edi
-	jmp short doNEXT
+	jmp short doNEXT2
 
 link_SPSTORE:
 	dw $-link_RPFETCH
 	db 3, 'SP!'
 SPSTORE:
 	pop esp
-	jmp short doNEXT
+	jmp short doNEXT2
 
 link_SPFETCH:
 	dw $-link_SPSTORE
@@ -853,7 +790,7 @@ link_SPFETCH:
 SPFETCH:
 	mov eax, esp
 	push eax
-	jmp short doNEXT
+	jmp short doNEXT2
 
 link_BRANCH:
 	dw $-link_SPFETCH
@@ -861,7 +798,7 @@ link_BRANCH:
 BRANCH:
 	lodsd
 	xchg esi, eax
-	jmp short doNEXT
+	jmp short doNEXT2
 
 link_0BRANCH:
 	dw $-link_BRANCH
@@ -871,7 +808,7 @@ _0BRANCH:
 	pop ebx
 	or ebx, ebx
 	cmovz esi, eax
-	jmp short doNEXT
+	jmp short doNEXT2
 
 link_KEY:
 	dw $-link_0BRANCH
@@ -879,7 +816,44 @@ link_KEY:
 KEY:
 	call near doKEY
 	push eax
-	jmp short doNEXT
+	jmp short doNEXT2
+
+link_EMIT:
+	dw $-link_KEY
+	db 4, 'EMIT'
+EMIT:
+	pop eax
+	call near CallRM
+	dw PrintChar
+	jmp short doNEXT2
+
+; ( cluster -- )
+; A thin wrapper around ReadCluster
+link_LOAD:
+	dw $-link_EMIT
+	db 4, 'LOAD'
+LOAD:
+	pop eax
+	pushad
+	call near CallRM
+	dw ReadCluster
+	popad
+	NEXT
+
+; ( name-pointer -- )
+; A thin wrapper around FindFile
+link_FILE:
+	dw $-link_LOAD
+	db 4, 'FILE'
+FILE:
+	pop eax
+	xchg edi, eax
+	pushad
+	call near CallRM
+	dw FindFile
+	popad
+	xchg edi, eax
+	NEXT
 
 doKEY:
 	mov eax, [ebp+dLENGTH]
@@ -927,43 +901,6 @@ doWORD:
 	mov esi, EOFMessage
 	call near CallRM
 	dw Error
-
-link_EMIT:
-	dw $-link_KEY
-	db 4, 'EMIT'
-EMIT:
-	pop eax
-	call near CallRM
-	dw PrintChar
-	NEXT
-
-; ( cluster -- )
-; A thin wrapper around ReadCluster
-link_LOAD:
-	dw $-link_EMIT
-	db 4, 'LOAD'
-LOAD:
-	pop eax
-	pushad
-	call near CallRM
-	dw ReadCluster
-	popad
-	NEXT
-
-; ( name-pointer -- )
-; A thin wrapper around FindFile
-link_FILE:
-	dw $-link_LOAD
-	db 4, 'FILE'
-FILE:
-	pop eax
-	xchg edi, eax
-	pushad
-	call near CallRM
-	dw FindFile
-	popad
-	xchg edi, eax
-	NEXT
 
 doCREATE:
 	push esi
@@ -1169,6 +1106,13 @@ INTERPRET:
 	mov di, WORDBuffer
 	call near CallRM
 	dw NotFoundError
+
+doCOMMA:
+	lea edx, [ebp+dHERE]
+	mov ebx, [edx]
+	mov [ebx], eax
+	add dword[edx], 4
+	ret
 
 LATESTInitialValue EQU link_SEMICOLON
 
