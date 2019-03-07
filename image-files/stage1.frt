@@ -23,10 +23,6 @@
 : 1+ -1 - ;
 : 1-  1 - ;
 
-: INVERT -1 XOR ;
-: NEGATE INVERT 1+ ;
-: + NEGATE - ;
-
 : CELL 4 ;
 
 : CELL+ -4 - ;
@@ -63,7 +59,12 @@
 
 : 2DUP OVER OVER ;
 
+: NEGATE 0 SWAP - ;
+: + NEGATE - ;
+: 2* DUP + ;
+
 : OR 2DUP AND >R + R> - ;
+: XOR 2DUP AND >R + R> 2* - ;
 
 : +!   DUP @ ROT +   SWAP ! ;
 : -!   DUP @ ROT -   SWAP ! ;
@@ -95,6 +96,7 @@
 : [ FALSE STATE ! ; IMMEDIATE
 : ] TRUE STATE ! ;
 
+: INVERT NEGATE 1- ;
 : 0= 0 = ;
 : 0<> 0= INVERT ;
 : 0< $80000000 AND 0<> ;
@@ -103,8 +105,8 @@
 : 0> 0<= INVERT ;
 
 : <> = INVERT ;
-: > $80000000 + SWAP $80000000 + U< ;
-: < SWAP > ;
+: < $80000000 + >R $80000000 + R> U< ;
+: > SWAP < ;
 : >= < INVERT ;
 : <= > INVERT ;
 
@@ -162,9 +164,6 @@
 : CHAR WORD DROP C@ ;
 
 CHAR 2 EMIT
-
-\ 2* and 2/ are separate words to make it possible to use the shift instructions of the processor.
-: 2* DUP + ;
 
 \ 2/ is an arithmetic shift and RSHIFT is a logical shift, so we have to preserve the top bit with
 \ some bit twiddling.

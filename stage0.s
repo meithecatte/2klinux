@@ -693,16 +693,8 @@ _AND:
 	and dword[esp], eax
 	jmp short doNEXT
 
-link_XOR:
-	dw $-link_AND
-	db 3, 'XOR'
-_XOR:
-	pop eax
-	xor dword[esp], eax
-	jmp short doNEXT
-
 link_RSHIFT:
-	dw $-link_XOR
+	dw $-link_AND
 	db 6, 'RSHIFT'
 RSHIFT:
 	pop ecx
