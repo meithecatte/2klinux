@@ -596,16 +596,16 @@ ROT:
 	push ecx
 	jmp short doNEXT
 
-link_ADD:
+link_SUB:
 	dw $-link_ROT
-	db 1, '+'
-_ADD:
+	db 1, '-'
+_SUB:
 	pop eax
-	add dword[esp], eax
+	sub dword[esp], eax
 	jmp short doNEXT
 
 link_SMDIVREM:
-	dw $-link_ADD
+	dw $-link_SUB
 	db 6, 'SM/REM'
 SMDIVREM:
 	pop ecx

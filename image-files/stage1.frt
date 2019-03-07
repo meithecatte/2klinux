@@ -20,12 +20,12 @@
 : FALSE 0 ;
 : TRUE -1 ;
 
-: 1+  1 + ;
-: 1- -1 + ;
+: 1+ -1 - ;
+: 1-  1 - ;
 
 : INVERT -1 XOR ;
 : NEGATE INVERT 1+ ;
-: - NEGATE + ;
+: + NEGATE - ;
 
 : CELL 4 ;
 
@@ -34,21 +34,21 @@
 : CHAR+ 1+ ;
 : CHAR- 1- ;
 
-: DROP SP@ 4 + SP! ;
+: DROP SP@ -4 - SP! ;
 : DUP SP@ @ ;
 : OVER SP@ CELL+ @ ;
-: R@ RP@ -8 + @ ;
+: R@ RP@ 8 - @ ;
 : R>
-  RP@ -8 + @
-  RP@ -4 + @
-  RP@ -8 + !
-  RP@ -4 + RP!
+  RP@ 8 - @
+  RP@ 4 - @
+  RP@ 8 - !
+  RP@ 4 - RP!
 ;
 : >R
-  RP@ -4 + @
+  RP@ 4 - @
   RP@ !
-  RP@ -4 + !
-  RP@ 4 + RP!
+  RP@ 4 - !
+  RP@ -4 - RP!
 ;
 : NIP >R DROP R> ;
 : SWAP
