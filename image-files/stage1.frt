@@ -473,7 +473,9 @@ HIDE COMPILE-STRING-CHARACTERS
   $FF C, ( r=4 -> JMP r/m )
   $E0 C, ( r/m: eax / r=4 )
 ;
+
 : REL! ( value addr -- ) DUP >R CELL+ - R> ! ;
+: REL, ( value -- ) HERE CELL ALLOT REL! ;
 : REL@ ( addr -- value ) DUP @ CELL+ + ;
 
 : CREATE-BARE      ( name u -- )
@@ -732,8 +734,8 @@ CHAR n EMIT
 
 : (COMPILE-ONLY)
   STATE @ IF EXIT THEN
-  R> CELL- ( address of COMPILE-ONLY xt )
-  5 - ( address of CALL DOCOL, xt of the protected word )
+  R> CELL- ( address of (COMPILE-ONLY) xt )
+  5 - ( address of CALL DOCOL, also the xt of the protected word )
   CFA>NAME TYPE ."  is compile only."
   ABORT
 ;
@@ -973,14 +975,26 @@ MKNOP CHARS
 
 : DEFER-DEFAULT
   CR ." DEFER-DEFAULT: "
-  5 -       ( because a CALL is 5 bytes long )
+  5 - ( because a CALL is 5 bytes long )
   CFA>NAME TYPE ."  used before being defined with IS"
   ABORT
 ;
 
-: DEFER WORD CREATE-BARE $E8 C, ['] DEFER-DEFAULT HERE CELL ALLOT REL! ;
-: DEFER@ 1+ REL@ ;
-: DEFER! $E9 OVER C! 1+ REL! ;
+: DEFER
+  WORD CREATE-BARE
+  $E8 C, ( call )
+  ['] DEFER-DEFAULT REL,
+;
+
+: DEFER@ ( xt -- inner )
+  1+ ( skip the jmp/call )
+  REL@
+;
+
+: DEFER! ( new xt -- )
+  $E9 OVER C!
+  1+ REL!
+;
 
 : IS
   STATE @ IF
