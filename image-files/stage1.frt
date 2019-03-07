@@ -201,10 +201,10 @@ CHAR 2 EMIT
 \ ELSE: compile an unconditional branch and resolve the previous, conditional branch.
 : ELSE            \ ( ptr1-addr -- ptr2-addr )
   COMPILE BRANCH
-  HERE            \ ( ptr1-addr ptr2-addr )
+  HERE >R         \ ( ptr1-addr ) ( R: ptr2-addr )
   0 ,             \ compile a dummy ptr2
-  HERE            \ ( ptr1-addr ptr2-addr ptr1-val )
-  ROT !           \ ( ptr2-addr )
+  >R HERE R> !          \ fill in the ptr1
+  R>
 ; IMMEDIATE
 
 \ THEN: resolve the previous branch.
