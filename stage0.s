@@ -672,21 +672,8 @@ DOCOL:
 doNEXT:
 	NEXT
 
-link_LT:
-	dw $-link_EQ
-	db 1, '<'
-LT:
-	pop ecx
-	pop ebx
-	xor eax, eax
-	cmp ebx, ecx
-	setnl al
-	dec eax
-	push eax
-	jmp short doNEXT
-
 link_ULT:
-	dw $-link_LT
+	dw $-link_EQ
 	db 2, 'U<'
 ULT:
 	pop ecx
