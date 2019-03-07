@@ -112,87 +112,8 @@
   UNTIL
 ; IMMEDIATE
 
-\ ---------- AN EXPLANATION OF WHAT HAS JUST HAPPENED --------------------------------------------
-
-\ Forth is a very extensible language. For example, you can even define your own comment syntax at
-\ runtime. Because space is tight in the initial binary, no comment words are included, what makes
-\ doing so a necessity, instead of being just an exercise. However, to define the comment word you
-\ see above, I needed some other words, which I will explain here.
-
-\ At the very beginning of this file, a few words that need to hardcode addresses are defined. The
-\ first batch contains simple constants:
-\ S0 - the initial value of the data stack pointer
-\ BLK - holds the cluster number of the currently loaded cluster
-\ >IN - holds the offset in the cluster buffer of the first unparsed character. Together with BLK,
-\       it can be used to save and restore the current file position, for example in order to read
-\       multiple files at once, which is necessary for implementing the C preprocessor.
-\ LATEST - holds the address of the last word defined
-\ STATE - FALSE if interpreting words, TRUE when compiling
-\ LENGTH - the number of bytes left in the currently open file. When this goes down to 0, KEY will
-\          return zeroes indefinitely. Since binary files are not expected, this should be handled
-\          appropriately by anything using KEY directly.
-
-\ Below, you can see words that do a little bit more:
-\ HERE - push the current value of the data pointer
-\ HERE! - deallocate memory: given an address, make it the first free byte in the data space
-\ ALLOT - allocate memory
-\ ROOT - load the root directory, often used before FILE
-
-\ Next, the constants describing the flags field of a dictionary entry are defined. If you want to
-\ learn more, they are discussed throroughly in stage0.s
-
-\ After that we see the character constants:
-\ #TAB - the ASCII value of the tab character
-\ #CR - the ASCII value of the linefeed character
-\ BL - the ASCII value of the space character
-
-\ In Forth, FALSE is represented by a cell with all bits unset, and TRUE - by a cell with all bits
-\ set, which corresponds with the two's complement representation of -1. This representation makes
-\ bitwise and logical operations equivalent, which avoids cluttering up the dictionary.  While any
-\ non-zero cell would work as TRUE with the control flow words, these two values are the canonical
-\ representations, which becomes important when dealing with logical operations.
-
-\ OR!, XOR! and AND! all combine the corresponding bitwise operation with ! in a similar manner to
-\ +! or -!. For example, `VAR @ $12 XOR VAR !` is equivalent to `$12 VAR XOR!`. Below, you can see
-\ their one-byte equivalents, which are prefixed with C, like C@, C! and C,.
-
-\ Finally, >FLAGS is a word that takes a pointer to the link field of a dictionary entry and turns
-\ it into a pointer to the flags field.
-
-\ All of this makes it possible to define IMMEDIATE. Unsurprisingly, IMMEDIATE is used to mark the
-\ word defined last as immediate. This flag means that INTERPRET runs the marked word immediately,
-\ _even if it's in compile mode_. One example is the ; word used to end colon definitions. We want
-\ it to run now, not when the new word is used, because that would trap us in compile mode.
-
-\ The way IMMEDIATE is implemented is surprisingly simple. While the grammar of Forth is different
-\ from English grammar, it is fair to say that the literal translation would be "Set the IMMEDIATE
-\ bit of the last word defined".
-
-\ KEY-NOEOF is a word that errors on EOF, instead of just returning a zero. Since conditionals are
-\ not yet implemented, this is a simple wrapper around KEY until it gets overwritten with IS. This
-\ is fine, because we don't expect an EOF condition before this file ends (duh). We will also need
-\ a similar word, MUST-FIND, that errors if a word is not in the dictionary:
 : MUST-FIND FIND ;
 
-\ Finally, there's UNGETC, that undoes the last KEY operation. Trying to UNGETC more than once can
-\ result in... well... just don't do it.
-
-\ [ and ] can be used to temporarily enter the interpretation mode while defining a word, which is
-\ most often used for compile-time expression evalutaion.
-
-\ These two words are used while defining \, since loop constructs are not yet available. Consider
-\   : \ UNGETC BEGIN KEY-NOEOF #CR = UNTIL ; IMMEDIATE
-\ The UNGETC is necessary because WORD will read one whitespace character after the word. It means
-\ that an implementation of \ without UNGETC would behave incorrectly when immediately followed by
-\ a newline. You can see how simple the following loop is - skip characters until a newline. Since
-\ BEGIN and UNTIL are not available so early, we use [ and ] to simulate them. How exactly this is
-\ done will become clear once you see how control flow is done. Finally, \ is marked immediate, to
-\ make comments work correctly in compile mode.
-
-\ ---------- THE MOST BASIC OF WORDS -------------------------------------------------------------
-
-\ Because of space restriction of stage0.asm, only some comparisons are primitive. The rest can be
-\ accomplished by combining other comparisons.
 : WHILE \ ( ptr2-val -- ptr1-addr ptr2-val )
   COMPILE 0BRANCH
   HERE             \ ( ptr2-val ptr1-addr )
@@ -241,37 +162,11 @@ CHAR 2 EMIT
 \ CELLS turns a number of cells into a number of bytes
 : CELLS 2* 2* ;
 
-\ ---------- THE UNINTUITIVE IMPLEMENTATION OF LITERAL -------------------------------------------
+\ Also known as the not exposed LIT in stage0
+: (LITERAL) R> DUP @ SWAP CELL+ >R ;
 
-\ LITERAL is a compile-time word that is used to define computed number literals. Consider
-\   : FOUR [ 2 2 + ] LITERAL ;
-
-\ LITERAL can also be used without the square bracket part - when used with POSTPONE or [COMPILE],
-\ the uglier and less versatile version of POSTPONE. The implementations of ['] is a good example.
-
-\ Consider this simpler version first:
-\   : LITERAL ['] LIT , , ; IMMEDIATE
-\ Since it is not what you see below, you can probably infer that there's something wrong with it.
-\ Namely, there is a cyclic dependency - ['] is implemented using LITERAL. However, there is a not
-\ very complicated way out. Think about how ['] would handle the above. It's just
-
-\ +--+--+--+--+--+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-\ |  call DOCOL  |  LIT  |  LIT  |   ,   |   ,   | EXIT  |
-\ +--+--+--+--+--+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-
-\ This already exists in stage0, but it's not exposed in the dictionary due to space concerns.
-: LIT R> DUP @ SWAP CELL+ >R ;
-
-\ LIT is not IMMEDIATE, so one can implement LITERAL like this:
-: LITERAL LIT LIT , , ; IMMEDIATE
-
-\ ---------- EXECUTION TOKENS --------------------------------------------------------------------
-
-\ Forth specifies a mechanism called execution tokens, somewhat similar to function pointers in C.
-\ An execution token is defined as a pointer to the first assembly instruction of a word. A lot of
-\ words are defined using `:` and `;`. Words defined that way begin with a call to DOCOL, which is
-\ then followed by a list of execution tokens, usually terminated by EXIT. To get an such a token,
-\ you should pass a pointer to the dictionary entry of a word to >CFA.
+\ (LITERAL) is not IMMEDIATE, so one can implement LITERAL like this:
+: LITERAL (LITERAL) (LITERAL) , , ; IMMEDIATE
 
 : >CFA >FLAGS    \ ( flags-address )
   DUP C@         \ ( flags-address flags )
@@ -279,73 +174,7 @@ CHAR 2 EMIT
   + 1+           \ skip name-length bytes, plus one more for the flags byte itself
 ;
 
-\ However, this is not the only way. In immediate mode, `' SOMEWORD` will push the execution token
-\ of SOME-WORD. ' is not immediate, and sometimes you want to use ['] instead. Imagine you want to
-\ manipulate the variable HANDLER-XT, which is supposed to contain an execution token. If you were
-\ going to do it often in your program, you would probably want some words to do it for you:
-
-\ : SET-HANDLER ' HANDLER-XT ! ;
-\ : SWITCH-TO-FIRST-HANDLER ['] FIRST-HANDLER HANDLER-XT ! ;
-
-\ Note that SET-HANDLER won't work like you expect in a word definition, i. e. you can't do
-\ : SWITCH-TO-FIRST-HANDLER SET-HANDLER FIRST-HANDLER ;
-
-\ To create an implementation of SET-HANDLER that works like that, you should look into `POSTPONE`
-\ and `IMMEDIATE`, probably combined with `LITERAL` or `[']`.
-
-\ With >CFA available, implementing ' is a piece of cake: get a word, find it in a dictionary, and
-\ turn it into an execution token.
 : ' WORD MUST-FIND >CFA ;
-
-\ ---------- POOR MAN'S POSTPONE -----------------------------------------------------------------
-
-\ Imagine you wanted to implement ENDIF, a word that would be equivalent to THEN, to make it clear
-\ for anyone reading your code that doesn't know anything about Forth. This can be accomplished by
-\ using POSTPONE:
-\ : ENDIF POSTPONE THEN ; IMMEDIATE
-
-\ That way, THEN will be executed when ENDIF is used, instead of the moment ENDIF is defined. This
-\ can also be used with non-immediate words, if such needs arise. This is a small fraction of what
-\ POSTPONE can do, but I think this is the simplest way to explain it.
-
-\ However, to implement POSTPONE you would have to detect whether a word is immediate, and compile
-\ it differently based on that information. To avoid circular dependencies, we implement [COMPILE]
-\ and COMPILE, which are limited versions of POSTPONE - [COMPILE] only handles immediate words and
-\ COMPILE only handles non-immediate words. Using the wrong variant is undefined behavior.
-
-\ [COMPILE] IF is equivalent to [ ' IF , ]
-: [COMPILE] ' , ; IMMEDIATE
-
-\ ---------- MAKING USE OF LITERAL - ['] and [CHAR] ----------------------------------------------
-
-\ ' and CHAR are great, but sometimes you would want them to work differently in compile mode. You
-\ are thinking about their wrapped-in-square-bracked counterparts. They both work very similarily:
-\ ['] SOME-WORD is equivalent to [ ' SOME-WORD ] LITERAL, and [CHAR] X is equivalent to [ CHAR X ]
-\ LITERAL. For any such "macro" you just need to POSTPONE everything except the stuff in brackets,
-\ or if you don't have POSTPONE, think about the immediancy of the words and use [COMPILE], or its
-\ bracketless equivalent.
-
-: [']    '    [COMPILE] LITERAL ; IMMEDIATE
-: [CHAR] CHAR [COMPILE] LITERAL ; IMMEDIATE
-
-\ ---------- CONTROL FLOW - IF ELSE THEN ---------------------------------------------------------
-
-\ Let's look at how you can implement a conditional using BRANCH and 0BRANCH:
-
-\ +--+--+--+--+-+-+-+-+- - - - -+
-\ |  0BRANCH  | ptr1  | if-part | after
-\ +--+--+--+--+-+ | +-+- - - - -+   ^
-\                 \_________________/
-
-\                                                ___________________
-\                                               /                   \
-\ +--+--+--+--+-+-+-+-+- - - - -+--+--+--+--+-+ | +-+- - - - - -+   V
-\ |  0BRANCH  | ptr1  | if-part |  BRANCH   | ptr2  | else-part | after
-\ +--+--+--+--+-+ | +-+- - - - -+--+--+--+--+-+-+-+-+  ^  - - - +
-\                 \____________________________________/
-
-\ To control the branch destinations, we can use the stack. You should keep in mind that all of it
-\ happens during compilation, so it will not interfere with the stack usage during execution.
 
 \ IF: compile a conditional branch and push the address of the destination pointer on the stack.
 : IF              \ ( -- ptr1-addr )
@@ -396,9 +225,6 @@ CHAR K EMIT
 
 \ ---------- INSPECTING THE FLAGS FIELD ----------------------------------------------------------
 
-\ Since they are about to get useful, let's implement words that will tell you if a flag is set in
-\ a dictionary entry.
-
 : HIDDEN? >FLAGS C@ F_HIDDEN AND 0<> ;
 : IMMEDIATE? >FLAGS C@ F_IMMED AND 0<> ;
 
@@ -413,9 +239,11 @@ CHAR K EMIT
   >CFA ,
 ; IMMEDIATE
 
-\ Since we have POSTPONE, we don't need those.
+\ Since we have POSTPONE, we don't need COMPILE anymore.
 HIDE COMPILE
-HIDE [COMPILE]
+
+: [']    '    POSTPONE LITERAL ; IMMEDIATE
+: [CHAR] CHAR POSTPONE LITERAL ; IMMEDIATE
 
 \ ---------- MAKING USE OF CONDITIONALS: ?DUP ----------------------------------------------------
 
@@ -467,60 +295,7 @@ HIDE [COMPILE]
   THEN
 ;
 
-\ ---------- BASIC LOOPING -----------------------------------------------------------------------
-
-\ The most basic loop in Forth is made using BEGIN and UNTIL. This code example will print numbers
-\ from 1 to 5:
-
-\ 0 BEGIN 1+ . DUP 5 > UNTIL
-
-\ UNTIL jumps to the corresponding BEGIN unless TRUE is found on the stack. When compiled, a BEGIN
-\ UNTIL loop will look like this:
-
-\ +- - - - - - -+--+--+--+--+-+-+-+-+
-\ | inside-loop |  0BRANCH  |  ptr  |
-\ +- ^ - - - - -+--+--+--+--+-+ | +-+
-\    \__________________________/
-
-\ BEGIN: save a branch destination for later consumption
-\ UNTIL: compile a conditional branch using the destination left on the stack by BEGIN
-\ A similar loop variant is BEGIN AGAIN - an infinite loop, unless stopped by EXIT
-
-\ More advanced is the BEGIN WHILE REPEAT loop - run the part between BEGIN and WHILE, and if that
-\ leaves TRUE on the stack, run the part between WHILE and REPEAT, then loop back to the beginning
-\ to repeat the whole process. This is how it looks compiled:
-
-\      _____________________________________________________
-\     /                                                     \
-\ +-  V  - - -+--+--+--+--+-+-+-+-+- - - - -+--+--+--+--+-+ | +-+
-\ | condition |  0BRANCH  | ptr1  | inside  |  BRANCH   | ptr2  | after
-\ +- - - - - -+--+--+--+--+-+ | +-+- - - - -+--+--+--+--+-+-+-+-+  ^
-\                             \____________________________________/
-
 \ ---------- CASE STATEMENTS ---------------------------------------------------------------------
-
-\ Many programmers are familiar with `switch` from C-like languages. In Forth, one would write:
-
-\ : SAY-NUMBER
-\   CASE
-\     1 OF ." ONE" ENDOF
-\     2 OF ." TWO" ENDOF
-\     3 OF ." THREE" ENDOF
-\     ." WE DIDN'T LEARN HOW TO COUNT TO " DUP . ." YET :("
-\   ENDCASE CR
-\ ;
-
-\ This could obviously be also achieved using IFs, and in fact, that's exactly what happens:
-
-\ CASE
-\ test1 OF ... ENDOF           test1 OVER = IF DROP ... ELSE
-\ test2 OF ... ENDOF           test2 OVER = IF DROP ... ELSE
-\ test3 OF ... ENDOF           test3 OVER = IF DROP ... ELSE
-\ default-case                 default-case
-\ ENDCASE                      DROP THEN THEN THEN
-
-\ To count how many THENs ENDCASE needs to POSTPONE, CASE pushes a 0 on the stack. Since IF leaves
-\ a branch pointer on the stack, the 0 will only be on the top when all IFs have matching THENs.
 
 : CASE 0 ; IMMEDIATE
 : OF
@@ -544,9 +319,6 @@ HIDE [COMPILE]
 ; IMMEDIATE
 
 \ ---------- PARENTHESIS COMMENTS ----------------------------------------------------------------
-
-\ Defining parenthesis comments works particularily nicely with CASE. Note how this implementation
-\ allows nesting parenthesis by keeping track of the nesting level.
 
 : (                    \ ( -- )
   1                    \ initial depth
@@ -607,7 +379,7 @@ SPACE CHAR L EMIT
   2SWAP
 ;
 
-: C, ( char -- ) HERE 1 ALLOT ! ;
+: C, ( char -- ) HERE 1 ALLOT C! ;
 
 : WITHIN ( c a b -- within? )
   OVER   ( c a b a )
@@ -699,13 +471,13 @@ HIDE COMPILE-STRING-CHARACTERS
   DUP C,
   F_LENMASK AND
   BEGIN ( ptr u )
-    DUP
+    ?DUP
   WHILE
     >R
     DUP C@ C,
     CHAR+ R> 1-
   REPEAT
-  2DROP
+  DROP
 ;
 
 : CREATE
@@ -821,13 +593,12 @@ VARIABLE LEAVE-PTR
   POSTPONE 0BRANCH ,
   LEAVE-PTR @
   BEGIN
-    DUP
+    ?DUP
   WHILE
     DUP @ >R
     HERE SWAP !
     R>
   REPEAT
-  DROP
   POSTPONE UNLOOP
   LEAVE-PTR !
 ;
