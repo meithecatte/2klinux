@@ -748,30 +748,20 @@ FETCH:
 	push eax
 	jmp short doNEXT
 
-link_TOR:
+link_RPSTORE:
 	dw $-link_FETCH
-	db 2, '>R'
-TOR:
-	pop eax
-	mov [edi], eax
-	add edi, 4
-doNEXT2:
+	db 3, 'RP!'
+RPSTORE:
+	pop edi
 	jmp short doNEXT
 
-link_FROMR:
-	dw $-link_TOR
-	db 2, 'R>'
-FROMR:
-	sub edi, 4
-	push dword[edi]
-	jmp short doNEXT2
-
 link_RPFETCH:
-	dw $-link_FROMR
+	dw $-link_RPSTORE
 	db 3, 'RP@'
 RPFETCH:
 	push edi
-	jmp short doNEXT2
+doNEXT2:
+	jmp short doNEXT
 
 link_SPSTORE:
 	dw $-link_RPFETCH

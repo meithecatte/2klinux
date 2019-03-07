@@ -34,9 +34,22 @@
 : CHAR+ 1+ ;
 : CHAR- 1- ;
 
-: DROP SP@ CELL+ SP! ;
+: DROP SP@ 4 + SP! ;
 : DUP SP@ @ ;
 : OVER SP@ CELL+ @ ;
+: R@ RP@ -8 + @ ;
+: R>
+  RP@ -8 + @
+  RP@ -4 + @
+  RP@ -8 + !
+  RP@ -4 + RP!
+;
+: >R
+  RP@ -4 + @
+  RP@ !
+  RP@ -4 + !
+  RP@ 4 + RP!
+;
 : NIP >R DROP R> ;
 : SWAP
   OVER >R
@@ -47,7 +60,6 @@
 : -ROT ROT ROT ;
 
 : RDROP R> R> DROP >R ;
-: R@ R> R> DUP >R SWAP >R ;
 
 : +!   DUP @ ROT +   SWAP ! ;
 : -!   DUP @ ROT -   SWAP ! ;
@@ -87,7 +99,8 @@
 : 0> 0<= INVERT ;
 
 : <> = INVERT ;
-: > SWAP < ;
+: > $80000000 + SWAP $80000000 + U< ;
+: < SWAP > ;
 : >= < INVERT ;
 : <= > INVERT ;
 
