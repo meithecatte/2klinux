@@ -33,10 +33,10 @@
 ; The general memory map looks like this:
 ;  0000 -  03FF -> Real mode interrupt vector table
 ;  0400 -  04FF -> The BIOS data area
-;  0500 -  14FF -> Forth return stack
-%define ForthR0 0x1500
+;  0500 -  ???? -> Forth return stack
+%define ForthR0 0x0500
 
-;  1500 -  7BFF -> the stack, used as the Forth parameter stack
+;  ???? -  7BFF -> the stack, used as the Forth parameter stack
 ;  7C00 -  7DFF -> The MBR - the first part of this file
 ;  7E00 -  83FF -> 3 sectors loaded from the FAT filesystem - the second part of this file
 ORG 0x7C00
@@ -579,8 +579,8 @@ QUIT:
 ; Return to executing its callee. Appended automatically by `;` at the end of all definitions, but
 ; may be used explicitly, usually conditionally
 EXIT:
+	sub edi, 4
 	mov esi, [edi]
-	add edi, 4
 	jmp short doNEXT
 
 LIT:
@@ -670,8 +670,8 @@ EQ:
 	jmp short doNEXT
 
 DOCOL:
-	sub edi, 4
 	mov [edi], esi
+	add edi, 4
 	pop esi
 doNEXT:
 	NEXT
@@ -757,8 +757,8 @@ link_TOR:
 	db 2, '>R'
 TOR:
 	pop eax
-	sub edi, 4
 	mov [edi], eax
+	add edi, 4
 doNEXT2:
 	jmp short doNEXT
 
@@ -766,8 +766,8 @@ link_FROMR:
 	dw $-link_TOR
 	db 2, 'R>'
 FROMR:
+	sub edi, 4
 	push dword[edi]
-	add edi, 4
 	jmp short doNEXT2
 
 link_RPFETCH:
@@ -792,26 +792,13 @@ SPFETCH:
 	push eax
 	jmp short doNEXT2
 
-link_BRANCH:
-	dw $-link_SPFETCH
-	db 6, 'BRANCH'
 BRANCH:
 	lodsd
 	xchg esi, eax
 	jmp short doNEXT2
 
-link_0BRANCH:
-	dw $-link_BRANCH
-	db 7, '0BRANCH'
-_0BRANCH:
-	lodsd
-	pop ebx
-	or ebx, ebx
-	cmovz esi, eax
-	jmp short doNEXT2
-
 link_KEY:
-	dw $-link_0BRANCH
+	dw $-link_SPFETCH
 	db 3, 'KEY'
 KEY:
 	call near doKEY
@@ -838,7 +825,8 @@ LOAD:
 	call near CallRM
 	dw ReadCluster
 	popad
-	NEXT
+doNEXT3:
+	jmp short doNEXT2
 
 ; ( name-pointer -- )
 ; A thin wrapper around FindFile
@@ -853,7 +841,17 @@ FILE:
 	dw FindFile
 	popad
 	xchg edi, eax
-	NEXT
+	jmp short doNEXT3
+
+link_FIND:
+	dw $-link_FILE
+	db 4, 'FIND'
+FIND:
+	pop ecx
+	pop ebx
+	call near doFIND
+	push edx
+	jmp short doNEXT3
 
 doKEY:
 	mov eax, [ebp+dLENGTH]
@@ -919,17 +917,6 @@ doCREATE:
 	pop edi
 	pop esi
 	ret
-
-link_FIND:
-	dw $-link_FILE
-	db 4, 'FIND'
-FIND:
-	pop ecx
-	pop ebx
-	call near doFIND
-	push edx
-	NEXT
-
 
 ; Input:
 ;  ECX = name length

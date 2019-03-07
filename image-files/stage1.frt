@@ -46,6 +46,9 @@
 : TUCK SWAP OVER ;
 : -ROT ROT ROT ;
 
+: RDROP R> R> DROP >R ;
+: R@ R> R> DUP >R SWAP >R ;
+
 : +!   DUP @ ROT +   SWAP ! ;
 : -!   DUP @ ROT -   SWAP ! ;
 : OR!  DUP @ ROT OR  SWAP ! ;
@@ -76,9 +79,28 @@
 : [ FALSE STATE ! ; IMMEDIATE
 : ] TRUE STATE ! ;
 
+: 0= 0 = ;
+: 0<> 0= INVERT ;
+: 0< $80000000 AND 0<> ;
+: 0>= 0< INVERT ;
+: 0<= DUP 0= SWAP 0< OR ;
+: 0> 0<= INVERT ;
+
+: <> = INVERT ;
+: > SWAP < ;
+: >= < INVERT ;
+: <= > INVERT ;
+
+: U> SWAP U< ;
+: U>= U< INVERT ;
+: U<= U> INVERT ;
+
 : ALLOT HERE + HERE! ;
 : , HERE CELL ALLOT ! ;
 : COMPILE R> DUP @ , CELL+ >R ;
+
+: BRANCH R> @ >R ;
+: 0BRANCH 0= DUP R@ @ AND SWAP INVERT R> CELL+ AND OR >R ;
 
 : BEGIN HERE ; IMMEDIATE
 : UNTIL COMPILE 0BRANCH , ; IMMEDIATE
@@ -171,22 +193,6 @@
 
 \ Because of space restriction of stage0.asm, only some comparisons are primitive. The rest can be
 \ accomplished by combining other comparisons.
-: 0= 0 = ;
-: 0<> 0= INVERT ;
-: 0< $80000000 AND 0<> ;
-: 0>= 0< INVERT ;
-: 0<= DUP 0= SWAP 0< OR ;
-: 0> 0<= INVERT ;
-
-: <> = INVERT ;
-: > SWAP < ;
-: >= < INVERT ;
-: <= > INVERT ;
-
-: U> SWAP U< ;
-: U>= U< INVERT ;
-: U<= U> INVERT ;
-
 : WHILE \ ( ptr2-val -- ptr1-addr ptr2-val )
   COMPILE 0BRANCH
   HERE             \ ( ptr2-val ptr1-addr )
@@ -216,6 +222,8 @@
 
 \ CHAR will parse a word and give you its first character.
 : CHAR WORD DROP C@ ;
+
+CHAR 2 EMIT
 
 \ 2* and 2/ are separate words to make it possible to use the shift instructions of the processor.
 : 2* DUP + ;
@@ -374,6 +382,8 @@
   EMIT
 ;
 
+CHAR K EMIT
+
 \ ---------- HIDING WORDS ------------------------------------------------------------------------
 
 \ Sometimes a word is only needed to implement something bigger, and should not be used after it's
@@ -431,11 +441,6 @@ HIDE [COMPILE]
 \ ---------- MAKING USE OF CONDITIONALS: ABS -----------------------------------------------------
 
 : ABS DUP 0< IF NEGATE THEN ;
-
-\ ---------- MANIPULATING THE RETURN STACK -------------------------------------------------------
-
-: RDROP R> R> DROP >R ;
-: R@ R> R> DUP >R SWAP >R ;
 
 \ Drop the address that points to the routine we're exiting from.
 : EXIT RDROP ;
@@ -557,6 +562,9 @@ HIDE [COMPILE]
 
 ( ---------- HAVING FUN WITH THE NEW TOY: STACK EFFECT COMMENTS! ------------------------------- )
 
+: SPACE BL EMIT ;
+SPACE CHAR L EMIT
+
 ( yes, I do indeed agree that my definition of fun is a weird one )
 
 : PICK ( x(u) ... x(1) x(0) u -- x(u) ... x(1) x(0) x(u) )
@@ -675,7 +683,11 @@ HIDE COMPILE-STRING-CHARACTERS
 ( ---------- VARIABLES ------------------------------------------------------------------------- )
 
 : PUSH-IMM32, $68 C, , ;
-: NEXT, $AD C, $FF C, $E0 C, ;
+: NEXT,
+  $AD C, ( lodsd )
+  $FF C, ( r=4 -> JMP r/m )
+  $E0 C, ( r/m: eax / r=4 )
+;
 : REL! ( value addr -- ) DUP >R CELL+ - R> ! ;
 : REL@ ( addr -- value ) DUP @ CELL+ + ;
 
@@ -711,6 +723,8 @@ MKNOP ALIGNED
 : VARIABLE CREATE CELL ALLOT ;
 HIDE PUSH-IMM32,
 HIDE NEXT,
+
+CHAR i EMIT
 
 ( ---------- COUNTED LOOPS --------------------------------------------------------------------- )
 
@@ -829,9 +843,9 @@ VARIABLE LEAVE-PTR
 ; IMMEDIATE
 
 : I     ( -- n ) POSTPONE R@ ; IMMEDIATE
-: I-MAX ( -- n ) RP@  8 + @ ;
-: J     ( -- n ) RP@ 12 + @ ;
-: J-MAX ( -- n ) RP@ 16 + @ ;
+: I-MAX ( -- n ) RP@ 12 - @ ;
+: J     ( -- n ) RP@ 16 - @ ;
+: J-MAX ( -- n ) RP@ 20 - @ ;
 
 HIDE (?DO)
 HIDE (LOOP)
@@ -840,6 +854,7 @@ HIDE SOME-LOOP
 
 : LSHIFT 0 ?DO DUP + LOOP ;
 
+CHAR n EMIT
 ( ---------- STRING HANDLING ------------------------------------------------------------------- )
 
 : S=
@@ -890,7 +905,6 @@ HIDE SOME-LOOP
   DROP ( this DROP is overwritten by the previous line )
 ;
 
-: SPACE BL EMIT ;
 : CR #CR EMIT ;
 : SPACES
   0 MAX
@@ -904,6 +918,7 @@ HIDE SOME-LOOP
   BEGIN AGAIN
 ;
 
+( ---------- MISCELLANEOUS --------------------------------------------------------------------- )
 : FOLLOW-LINK
   DUP C@ OVER 1+ C@ 8 LSHIFT +
   DUP 0= IF
@@ -973,6 +988,7 @@ RETRO [']
 RETRO [CHAR]
 
 HIDE RETRO
+CHAR u EMIT
 
 VARIABLE RECURSE-XT
 
@@ -1097,14 +1113,10 @@ VARIABLE RECURSE-XT
   2DROP
 ;
 
-
 ( redefine FILE to expand the dot in the filename to the appropriate amount of spaces and convert
   the filename to uppercase )
 
-CREATE BUFFER 12 ALLOT
-0 BUFFER 11 + !
-( the last byte is never written to, but FindFile will slightly break when reporting a file not
-  found error if the filename is not immediately followed by a null byte )
+CREATE BUFFER 11 ALLOT
 
 : LENGTH-CHECK ( curr-destination curr-maximum -- curr-destination | ABORT )
   BUFFER + OVER < IF
@@ -1133,6 +1145,7 @@ CREATE BUFFER 12 ALLOT
 
 HIDE BUFFER
 HIDE LENGTH-CHECK
+CHAR x EMIT
 
 : CONCLUDE"
   POSTPONE S"
@@ -1218,5 +1231,5 @@ MKNOP CHARS
   THEN
 ; IS KEY-NOEOF
 
-." 2K Linux" CR
+CR
 CONCLUDE" TEST.FRT"
