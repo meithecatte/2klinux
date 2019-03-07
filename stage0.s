@@ -565,11 +565,111 @@ PM_Entry:
 	xchg edi, eax
 	; fallthrough
 
-QUIT:
-	call near DOCOL
+INTERPRET:
+	call near doWORD
+	mov ebx, eax
+	call near doFIND
+	or edx, edx
+	jz short .handle_number ; if the word isn't found, assume it's a number
+
+	add edx, 2
+	mov cl, [edx]
+	movzx eax, cl
+	and al, F_LENMASK
+	add edx, eax
+	inc edx
+
+	xchg eax, edx
+	mov ebx, [ebp+dSTATE]
+	or ebx, ebx
+	jz short .interpret ; if we're in interpreting mode, execute the word
+
+	and cl, F_IMMED
+	jz short .comma_next
+
+.interpret:
+	mov esi, INTERPRET_LOOP
+	jmp eax
+
+.interpret_number:
+	push eax
+.go_again:
+	jmp short INTERPRET
+
+.handle_number:
+	push ecx
+	push esi
+	mov esi, WORDBuffer
+	mov word[.negate_patch], 0x9066 ; two byte nop - assume we don't need to negate
+	xor ebx, ebx
+	mul ebx      ; zeroes EAX, EBX and EDX
+	mov dl, 10
+	mov bl, [esi]
+	cmp bl, '$'
+	jne .nothex
+	mov dl, 16
+	inc esi
+	dec ecx
+.nothex:
+	cmp bl, '-'
+	jne .loop
+	mov word[.negate_patch], 0xd8f7
+	inc esi
+	dec ecx
 .loop:
+	mov bl, [esi]
+	sub bl, '0'
+	jb .end
+	cmp bl, 9
+	jbe .gotdigit
+	sub bl, 'A' - '0'
+	jb .end
+	add bl, 10
+.gotdigit:
+	cmp bl, dl
+	jae .end
+	push edx
+	mul edx
+	add eax, ebx
+	pop edx
+	inc esi
+	loop .loop
+.end:
+.negate_patch:
+	dw 0xd8f7 ; either `neg eax' or `nop'
+	pop esi
+
+	or ecx, ecx
+	pop ecx
+	jnz short .error
+
+	mov ebx, [ebp+dSTATE]
+	or ebx, ebx
+	jz short .interpret_number
+
+	push eax
+	mov eax, LIT
+	call near doCOMMA
+	pop eax
+
+.comma_next:
+	call near doCOMMA
+	jmp short .go_again
+
+.error:
+	mov di, WORDBuffer
+	call near CallRM
+	dw NotFoundError
+
+doCOMMA:
+	lea edx, [ebp+dHERE]
+	mov ebx, [edx]
+	mov [ebx], eax
+	add dword[edx], 4
+	ret
+
+INTERPRET_LOOP:
 	dd INTERPRET
-	dd BRANCH, .loop
 
 ; ( -- )
 ; Return to executing its callee. Appended automatically by `;` at the end of all definitions, but
@@ -584,22 +684,9 @@ LIT:
 	push eax
 	jmp short doNEXT
 
-link_ROT:
-	dw 0
-	db 3, 'ROT'
-ROT:
-	pop eax
-	pop ebx
-	pop ecx
-	push ebx
-	push eax
-	push ecx
-	jmp short doNEXT
-
 link_SUB:
-	dw $-link_ROT
+	dw 0
 	db 1, '-'
-_SUB:
 	pop eax
 	sub dword[esp], eax
 	jmp short doNEXT
@@ -607,7 +694,6 @@ _SUB:
 link_SMDIVREM:
 	dw $-link_SUB
 	db 6, 'SM/REM'
-SMDIVREM:
 	pop ecx
 	pop edx
 	pop eax
@@ -619,7 +705,6 @@ SMDIVREM:
 link_UMDIVMOD:
 	dw $-link_SMDIVREM
 	db 6, 'UM/MOD'
-UMDIVMOD:
 	pop ecx
 	pop edx
 	pop eax
@@ -631,7 +716,6 @@ UMDIVMOD:
 link_MMUL:
 	dw $-link_UMDIVMOD
 	db 2, 'M*'
-MMUL:
 	pop ebx
 	pop eax
 	cdq
@@ -643,7 +727,6 @@ MMUL:
 link_UMMUL:
 	dw $-link_MMUL
 	db 3, 'UM*'
-UMMUL:
 	pop ebx
 	pop eax
 	xor edx, edx
@@ -655,7 +738,6 @@ UMMUL:
 link_EQ:
 	dw $-link_UMMUL
 	db 1, '='
-EQ:
 	pop ecx
 	pop ebx
 	xor eax, eax
@@ -675,7 +757,6 @@ doNEXT:
 link_ULT:
 	dw $-link_EQ
 	db 2, 'U<'
-ULT:
 	pop ecx
 	pop ebx
 	xor eax, eax
@@ -688,7 +769,6 @@ ULT:
 link_AND:
 	dw $-link_ULT
 	db 3, 'AND'
-_AND:
 	pop eax
 	and dword[esp], eax
 	jmp short doNEXT
@@ -696,7 +776,6 @@ _AND:
 link_RSHIFT:
 	dw $-link_AND
 	db 6, 'RSHIFT'
-RSHIFT:
 	pop ecx
 	shr dword[esp], cl
 	jmp short doNEXT
@@ -704,7 +783,6 @@ RSHIFT:
 link_STORE:
 	dw $-link_RSHIFT
 	db 1, '!'
-STORE:
 	pop ebx
 	pop eax
 	mov [ebx], eax
@@ -713,7 +791,6 @@ STORE:
 link_FETCH:
 	dw $-link_STORE
 	db 1, '@'
-FETCH:
 	pop eax
 	mov eax, [eax]
 	push eax
@@ -722,14 +799,12 @@ FETCH:
 link_RPSTORE:
 	dw $-link_FETCH
 	db 3, 'RP!'
-RPSTORE:
 	pop edi
 	jmp short doNEXT
 
 link_RPFETCH:
 	dw $-link_RPSTORE
 	db 3, 'RP@'
-RPFETCH:
 	push edi
 doNEXT2:
 	jmp short doNEXT
@@ -737,27 +812,19 @@ doNEXT2:
 link_SPSTORE:
 	dw $-link_RPFETCH
 	db 3, 'SP!'
-SPSTORE:
 	pop esp
 	jmp short doNEXT2
 
 link_SPFETCH:
 	dw $-link_SPSTORE
 	db 3, 'SP@'
-SPFETCH:
 	mov eax, esp
 	push eax
-	jmp short doNEXT2
-
-BRANCH:
-	lodsd
-	xchg esi, eax
 	jmp short doNEXT2
 
 link_KEY:
 	dw $-link_SPFETCH
 	db 3, 'KEY'
-KEY:
 	call near doKEY
 	push eax
 	jmp short doNEXT2
@@ -765,7 +832,6 @@ KEY:
 link_EMIT:
 	dw $-link_KEY
 	db 4, 'EMIT'
-EMIT:
 	pop eax
 	call near CallRM
 	dw PrintChar
@@ -776,7 +842,6 @@ EMIT:
 link_LOAD:
 	dw $-link_EMIT
 	db 4, 'LOAD'
-LOAD:
 	pop eax
 	pushad
 	call near CallRM
@@ -790,7 +855,6 @@ doNEXT3:
 link_FILE:
 	dw $-link_LOAD
 	db 4, 'FILE'
-FILE:
 	pop eax
 	xchg edi, eax
 	pushad
@@ -803,7 +867,6 @@ FILE:
 link_FIND:
 	dw $-link_FILE
 	db 4, 'FIND'
-FIND:
 	pop ecx
 	pop ebx
 	call near doFIND
@@ -910,7 +973,7 @@ doFIND:
 	pop esi
 	ret
 
-link_DOCOLCOMMA
+link_DOCOLCOMMA:
 	dw $-link_FIND
 	db 6, 'DOCOL,'
 DOCOLCOMMA:
@@ -956,107 +1019,6 @@ SEMICOLON:
 
 	xor eax, eax
 	jmp short ChangeState
-
-INTERPRET:
-	call near doWORD
-	mov ebx, eax
-	call near doFIND
-	or edx, edx
-	jz short .handle_number ; if the word isn't found, assume it's a number
-
-	add edx, 2
-	mov cl, [edx]
-	movzx eax, cl
-	and al, F_LENMASK
-	add edx, eax
-	inc edx
-
-	xchg eax, edx
-	mov ebx, [ebp+dSTATE]
-	or ebx, ebx
-	jz short .interpret ; if we're in interpreting mode, execute the word
-
-	and cl, F_IMMED
-	jz short .comma_next
-
-.interpret:
-	jmp eax
-
-.handle_number:
-	push ecx
-	push esi
-	mov esi, WORDBuffer
-	mov word[.negate_patch], 0x9066 ; two byte nop - assume we don't need to negate
-	xor ebx, ebx
-	mul ebx      ; zeroes EAX, EBX and EDX
-	mov dl, 10
-	mov bl, [esi]
-	cmp bl, '$'
-	jne .nothex
-	mov dl, 16
-	inc esi
-	dec ecx
-.nothex:
-	cmp bl, '-'
-	jne .loop
-	mov word[.negate_patch], 0xd8f7
-	inc esi
-	dec ecx
-.loop:
-	mov bl, [esi]
-	sub bl, '0'
-	jb .end
-	cmp bl, 9
-	jbe .gotdigit
-	sub bl, 'A' - '0'
-	jb .end
-	add bl, 10
-.gotdigit:
-	cmp bl, dl
-	jae .end
-	push edx
-	mul edx
-	add eax, ebx
-	pop edx
-	inc esi
-	loop .loop
-.end:
-.negate_patch:
-	dw 0xd8f7 ; either `neg eax' or `nop'
-	pop esi
-
-	or ecx, ecx
-	pop ecx
-	jnz .error
-
-	mov ebx, [ebp+dSTATE]
-	or ebx, ebx
-	jz .interpret_number
-
-	push eax
-	mov eax, LIT
-	call near doCOMMA
-	pop eax
-
-.comma_next:
-	call near doCOMMA
-	NEXT
-
-.interpret_number:
-	push eax
-	NEXT
-
-.error:
-	mov di, WORDBuffer
-	call near CallRM
-	dw NotFoundError
-
-doCOMMA:
-	lea edx, [ebp+dHERE]
-	mov ebx, [edx]
-	mov [ebx], eax
-	add dword[edx], 4
-	ret
 
 LATESTInitialValue EQU link_SEMICOLON
 

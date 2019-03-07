@@ -52,8 +52,9 @@
   NIP
   R>
 ;
+: ROT >R SWAP R> SWAP ;
+: -ROT SWAP >R SWAP R> ;
 : TUCK SWAP OVER ;
-: -ROT ROT ROT ;
 
 : RDROP R> R> DROP >R ;
 
