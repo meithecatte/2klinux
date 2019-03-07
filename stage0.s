@@ -873,6 +873,56 @@ link_FIND:
 	push edx
 	jmp short doNEXT3
 
+link_COLON:
+	dw $-link_FIND
+	db 1, ':'
+COLON:
+	call near doWORD
+	or cl, F_HIDDEN
+
+	push edi
+	push esi
+	xchg esi, eax
+	mov edi, [ebp+dHERE]
+	mov eax, edi
+	sub eax, [ebp+dLATEST]
+	mov [ebp+dLATEST], edi
+	stosw
+	mov al, cl
+	stosb
+	and cl, F_LENMASK
+	rep movsb
+	mov [ebp+dHERE], edi
+	pop esi
+
+	mov edi, [ebp+dHERE]
+	mov al, 0xE8
+	stosb
+	mov eax, DOCOL-4 ; eax = DOCOL - (edi + 4)
+	sub eax, edi
+	stosd
+	mov [ebp+dHERE], edi
+	pop edi
+
+	xor eax, eax
+	dec eax
+ChangeState:
+	mov [ebp+dSTATE], eax
+	NEXT
+
+link_SEMICOLON:
+	dw $-link_COLON
+	db F_IMMED|1, ';'
+SEMICOLON:
+	mov eax, EXIT
+	call near doCOMMA
+
+	mov eax, [ebp+dLATEST]
+	and byte[eax+2], ~F_HIDDEN
+
+	xor eax, eax
+	jmp short ChangeState
+
 doKEY:
 	mov eax, [ebp+dLENGTH]
 	or eax, eax
@@ -920,24 +970,6 @@ doWORD:
 	call near CallRM
 	dw Error
 
-doCREATE:
-	push esi
-	push edi
-	xchg esi, eax
-	mov edi, [ebp+dHERE]
-	mov eax, edi
-	sub eax, [ebp+dLATEST]
-	mov [ebp+dLATEST], edi
-	stosw
-	mov al, cl
-	stosb
-	and cl, F_LENMASK
-	rep movsb
-	mov [ebp+dHERE], edi
-	pop edi
-	pop esi
-	ret
-
 ; Input:
 ;  ECX = name length
 ;  EBX = name pointer
@@ -972,43 +1004,6 @@ doFIND:
 	pop edi
 	pop esi
 	ret
-
-link_COLON:
-	dw $-link_FIND
-	db 1, ':'
-COLON:
-	call near doWORD
-	or cl, F_HIDDEN
-	call near doCREATE
-
-	push edi
-	mov edi, [ebp+dHERE]
-	mov al, 0xE8
-	stosb
-	mov eax, DOCOL-4 ; eax = DOCOL - (edi + 4)
-	sub eax, edi
-	stosd
-	mov [ebp+dHERE], edi
-	pop edi
-
-	xor eax, eax
-	dec eax
-ChangeState:
-	mov [ebp+dSTATE], eax
-	NEXT
-
-link_SEMICOLON:
-	dw $-link_COLON
-	db F_IMMED|1, ';'
-SEMICOLON:
-	mov eax, EXIT
-	call near doCOMMA
-
-	mov eax, [ebp+dLATEST]
-	and byte[eax+2], ~F_HIDDEN
-
-	xor eax, eax
-	jmp short ChangeState
 
 LATESTInitialValue EQU link_SEMICOLON
 
