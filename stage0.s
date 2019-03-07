@@ -973,14 +973,14 @@ doFIND:
 	pop esi
 	ret
 
-link_DOCOLCOMMA:
+link_COLON:
 	dw $-link_FIND
-	db 6, 'DOCOL,'
-DOCOLCOMMA:
-	call near doDOCOLCOMMA
-	NEXT
+	db 1, ':'
+COLON:
+	call near doWORD
+	or cl, F_HIDDEN
+	call near doCREATE
 
-doDOCOLCOMMA:
 	push edi
 	mov edi, [ebp+dHERE]
 	mov al, 0xE8
@@ -990,16 +990,6 @@ doDOCOLCOMMA:
 	stosd
 	mov [ebp+dHERE], edi
 	pop edi
-	ret
-
-link_COLON:
-	dw $-link_DOCOLCOMMA
-	db 1, ':'
-COLON:
-	call near doWORD
-	or cl, F_HIDDEN
-	call near doCREATE
-	call near doDOCOLCOMMA
 
 	xor eax, eax
 	dec eax

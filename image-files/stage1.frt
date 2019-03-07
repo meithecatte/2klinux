@@ -476,6 +476,12 @@ HIDE COMPILE-STRING-CHARACTERS
 : REL, ( value -- ) HERE CELL ALLOT REL! ;
 : REL@ ( addr -- value ) DUP @ CELL+ + ;
 
+: DOCOL [ HERE CELL- REL@ ] LITERAL ;
+: DOCOL,
+  $E8 C, ( call )
+  DOCOL REL,
+;
+
 : CREATE-BARE      ( name u -- )
   HERE LATEST @ -  ( name u link )
   HERE LATEST !
