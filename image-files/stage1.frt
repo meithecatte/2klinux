@@ -59,30 +59,29 @@
 
 : 2DUP OVER OVER ;
 
-: NEGATE 0 SWAP - ;
+: NEGATE >R 0 R> - ;
 : + NEGATE - ;
 : 2* DUP + ;
 
 : OR 2DUP AND >R + R> - ;
 : XOR 2DUP AND >R + R> 2* - ;
 
-: +!   DUP @ ROT +   SWAP ! ;
-: -!   DUP @ ROT -   SWAP ! ;
-: OR!  DUP @ ROT OR  SWAP ! ;
-: XOR! DUP @ ROT XOR SWAP ! ;
-: AND! DUP @ ROT AND SWAP ! ;
-
 : C@ @ $FF AND ;
 : C!
-  DUP @
+  DUP >R @
   $FFFFFF00 AND
-  ROT OR
-  SWAP !
+  OR
+  R> !
 ;
 
-: COR!  DUP C@ ROT OR  SWAP C! ;
-: CXOR! DUP C@ ROT XOR SWAP C! ;
-: CAND! DUP C@ ROT AND SWAP C! ;
+: +!    DUP >R @ +        R> ! ;
+: -!    DUP >R @ - NEGATE R> ! ;
+: OR!   DUP >R @ OR       R> ! ;
+: XOR!  DUP >R @ XOR      R> ! ;
+: AND!  DUP >R @ AND      R> ! ;
+: COR!  DUP >R C@ OR      R> C! ;
+: CXOR! DUP >R C@ XOR     R> C! ;
+: CAND! DUP >R C@ AND     R> C! ;
 
 : >FLAGS 2 + ;
 : IMMEDIATE F_IMMED LATEST @ >FLAGS COR! ;
@@ -101,7 +100,7 @@
 : 0<> 0= INVERT ;
 : 0< $80000000 AND 0<> ;
 : 0>= 0< INVERT ;
-: 0<= DUP 0= SWAP 0< OR ;
+: 0<= DUP 0= >R 0< R> OR ;
 : 0> 0<= INVERT ;
 
 : <> = INVERT ;
@@ -150,7 +149,7 @@
 \ WORD is implemented in stage0, but not exposed.
 : WORD
   BEGIN KEY-NOEOF DUP BL <= WHILE DROP REPEAT
-  $7DDE SWAP
+  >R $7DDE R>
   BEGIN \ ( addr c )
     OVER C!
     CHAR+
@@ -168,9 +167,9 @@ CHAR 2 EMIT
 \ 2/ is an arithmetic shift and RSHIFT is a logical shift, so we have to preserve the top bit with
 \ some bit twiddling.
 : 2/            \ ( x )
-  DUP           \ ( x x )
+  DUP >R        \ ( x x )
   1 RSHIFT      \ ( x x>>1 )
-  SWAP          \ ( x>>1 x )
+  R>            \ ( x>>1 x )
   $80000000 AND \ ( x>>1 topbit )
   OR
 ;
@@ -179,7 +178,7 @@ CHAR 2 EMIT
 : CELLS 2* 2* ;
 
 \ Also known as the not exposed LIT in stage0
-: (LITERAL) R> DUP @ SWAP CELL+ >R ;
+: (LITERAL) R@ @ R> CELL+ >R ;
 
 \ (LITERAL) is not IMMEDIATE, so one can implement LITERAL like this:
 : LITERAL (LITERAL) (LITERAL) , , ; IMMEDIATE
@@ -210,8 +209,7 @@ CHAR 2 EMIT
 
 \ THEN: resolve the previous branch.
 : THEN            \ ( ptr-addr -- )
-  HERE            \ ( ptr-addr ptr-val )
-  SWAP !
+  >R HERE R> !
 ; IMMEDIATE
 
 \ ---------- MAKING USE OF CONDITIONALS: EMIT ----------------------------------------------------
@@ -235,7 +233,7 @@ CHAR K EMIT
 \ used the few times it's designed for. This Forth provides HIDE just for these situations.
 
 \ HIDDEN takes an address of a dictionary entry and toggles its hidden flag
-: HIDDEN >FLAGS F_HIDDEN SWAP CXOR! ;
+: HIDDEN >FLAGS >R F_HIDDEN R> CXOR! ;
 
 : HIDE WORD MUST-FIND HIDDEN ;
 
@@ -302,7 +300,7 @@ HIDE COMPILE
 
 \ x86 uses symmetric division, so we need to implement floored ourselves
 : FM/MOD
-  DUP >R     \ save the divisor
+  DUP >R \ save the divisor
   SM/REM
   OVER DUP 0<> SWAP 0< R@ 0< XOR AND IF \ if the remainder and the divisor have different signs,
     1- SWAP R> + SWAP  \ decrement the quotient and add the divisor to the quotient
