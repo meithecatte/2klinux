@@ -82,21 +82,18 @@ ORG 0x7C00
 BITS 16
 
 MBR:
-; While all BIOSes agree about the destination of the jump, the memory segmentation of x86 present
-; in Real Mode makes it possible to encode the address in two different ways, i. e. 0000:7C00 (the
-; sane option) and 07C0:0000 (the overcomplicated and non-standard option). Because, on x86, jumps
-; and calls are relative, the difference is not immediately obvious, which is probably why the bug
-; went unnoticed until it was too late. However, trying to write code that could be loaded at more
-; than one address without the help of relocation table is tricky. Additionally, the threaded code
-; representation commonly used by Forth systems contains absolute addresses, which breaks when the
-; load address doesn't match, and trying to make it use relative addresses by modifying NEXT is an
-; unnecessarily complex solution to an inherently simple problem - the simplest way to fix this is
-; a long jump at the very beginning of the code.
+; While all BIOSes agree about the destination of the jump, this cannot be said about the value of
+; IP - the memory segmentation of x86 present in Real Mode makes it possible to encode the address
+; in two different ways, i. e. 0000:7C00 (the sane way) and 07C0:0000 (the I am a snowflake way).
+
+; Because jumps and calls are relative on x86, the difference is not immediately problematic,
+; which is probably why the bug went unnoticed until it was too late. However, trying to write
+; code that could be loaded at more than one address without the help of relocation table is
+; tricky. Hence, let's correct the faulty BIOSes with a long jump.
 	jmp 0:start
 start:
 ; Since an interrupt can happen at any time, and interrupts use the stack, one has to disable them
-; before moving the stack to a controlled location, since it is not an atomic operation. The other
-; option is pulling your hair out over mysterious intermittent failures.
+; before moving the stack, since doing so is not an atomic operation.
 	cli
 	mov bp, MBR
 	mov sp, bp
@@ -158,11 +155,10 @@ start:
 
 ; In a FAT filesystem, a directory is just a file that stores constant-size directory entries. One
 ; directory entry contains:
-;  - a filename (at offsets 0 - 10)
-;  - an attribute byte (at offset 11)
-;  - the high 16 bits of the first cluster number of the file the entry describes (at offset 20)
-;  - the low 16 bits of the cluster number (at offset 26)
-;  - the size of the file (at offset 28)
+;  - a filename
+;  - an attribute byte
+;  - the number of the first cluster of the file the entry describes
+;  - the size of the file
 ;  - a lot of information we don't care about like the creation and modification date.
 
 %define FATNameLength  11
@@ -432,8 +428,8 @@ PartitionTable:
 ; The following 64 bytes will be overwritten by the partition table. In the first four of them are
 ; stored the amounts of free space in each of the two code regions, which are calculated easily by
 ; the assembler.
-	dw MBR_FREESPACE
-	dw REST_FREESPACE
+	dw MBR_FREESPACE ; could be replaced with 0 with no consequencess
+	dw REST_FREESPACE ; same
 	times 4 db 0
 
 P1LBA:      dd 0
