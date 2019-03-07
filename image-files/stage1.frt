@@ -29,8 +29,8 @@
 
 : CELL 4 ;
 
-: CELL+ CELL + ;
-: CELL- CELL - ;
+: CELL+ -4 - ;
+: CELL-  4 - ;
 : CHAR+ 1+ ;
 : CHAR- 1- ;
 
