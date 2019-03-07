@@ -61,6 +61,10 @@
 
 : RDROP R> R> DROP >R ;
 
+: 2DUP OVER OVER ;
+
+: OR 2DUP AND >R + R> - ;
+
 : +!   DUP @ ROT +   SWAP ! ;
 : -!   DUP @ ROT -   SWAP ! ;
 : OR!  DUP @ ROT OR  SWAP ! ;
@@ -373,10 +377,6 @@ SPACE CHAR L EMIT
 ;
 
 : 2DROP ( a b -- ) DROP DROP ;
-: 2DUP ( a b -- a b a b )
-  OVER ( a b a )
-  OVER ( a b a b )
-;
 
 : 2SWAP ( a b c d -- c d a b )
   >R    ( a b c R: d )

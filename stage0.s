@@ -693,16 +693,8 @@ _AND:
 	and dword[esp], eax
 	jmp short doNEXT
 
-link_OR:
-	dw $-link_AND
-	db 2, 'OR'
-_OR:
-	pop eax
-	or dword[esp], eax
-	jmp short doNEXT
-
 link_XOR:
-	dw $-link_OR
+	dw $-link_AND
 	db 3, 'XOR'
 _XOR:
 	pop eax
