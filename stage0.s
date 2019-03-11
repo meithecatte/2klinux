@@ -569,12 +569,12 @@ INTERPRET:
 
 	mov edx, [ebp+dLATEST]
 .find:
-	mov al, [edx+2]
+	lea esi, [edx+2]
+	lodsb
 	and al, F_HIDDEN|F_LENMASK
 	cmp al, cl
 	jnz .next
 
-	lea esi, [edx+3]
 	mov edi, ebx
 	push ecx
 	repe cmpsb
@@ -961,11 +961,10 @@ doWORD:
 	cmp al, ' '
 	ja .loop
 
-	mov byte[edx+ecx], 0
 	xchg edx, eax
 	ret
 .eof:
-	mov esi, EOFMessage
+	mov si, EOFMessage
 	call near CallRM
 	dw Error
 

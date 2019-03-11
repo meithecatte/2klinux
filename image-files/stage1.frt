@@ -7,7 +7,7 @@
 
 : HERE    $7C1C @ ;
 : HERE!   $7C1C ! ;
-: ROOT $882C @ LOAD ;
+: ROOT    $882C @ LOAD ;
 
 : F_IMMED   $80 ;
 : F_HIDDEN  $20 ;
