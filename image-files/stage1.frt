@@ -330,25 +330,9 @@ HIDE COMPILE
 
 : ABS DUP 0< IF NEGATE THEN ;
 
-\ ---------- MULTIPLICATION AND DIVISION ---------------------------------------------------------
-
-\ To save space, * and /MOD are not primitive, and are instead implemented using SM/REM or M*
-: */MOD >R M* R> SM/REM ;
-: */ */MOD NIP ;
-: * M* D>S ;
-
-: /MOD >R S>D R> SM/REM ;
-: / /MOD NIP ;
-: MOD /MOD DROP ;
-
-\ x86 uses symmetric division, so we need to implement floored ourselves
-: FM/MOD
-  DUP >R \ save the divisor
-  SM/REM
-  OVER DUP 0<> SWAP 0< R@ 0< XOR AND IF \ if the remainder and the divisor have different signs,
-    1- SWAP R> + SWAP  \ decrement the quotient and add the divisor to the quotient
-  ELSE
-    RDROP
+: MINMAX \ ( a b -- min max )
+  2DUP > IF
+    SWAP
   THEN
 ;
 
@@ -437,12 +421,6 @@ SPACE CHAR L EMIT
   -      ( distance-from-beginning-of-the-range R: range-size )
   R>     ( distance-from-beginning-of-the-range range-size )
   U<     ( within? )
-;
-
-: MINMAX ( a b -- min max )
-  2DUP > IF
-    SWAP
-  THEN
 ;
 
 : MIN ( a b -- min(a, b) ) MINMAX DROP ;
@@ -816,82 +794,26 @@ VARIABLE RECURSE-XT
   THEN
 ;
 
-: B.R ( u width base -- )
-  ROT ( width base u )
-  0   ( width base ud )
-  2 PICK ( width base ud base )
-  UM/MOD ( width base rem quot )
-  ?DUP IF
-    ( width base rem quot )
-    SWAP >R ( width base quot R: rem )
-    ROT ( base quot width R: rem )
-    1- 0 MAX
-    ROT ( quot width base R: rem )
-    RECURSE
-    R> ( rem )
+: .R ( u width -- )
+  1- 0 MAX >R ( u ) ( R: width )
+  DUP 4 RSHIFT ?DUP IF
+    R> RECURSE
   ELSE
-    NIP ( width rem )
-    SWAP ( rem width )
-    1- SPACES ( rem )
+    R> SPACES
   THEN
-  .DIGIT
-;
-
-: U.R 10 B.R ; : U.X 0 U.R ; : U. U.X SPACE ;
-: H.R 16 B.R ; : H.X 0 H.R ; : H. H.X SPACE ;
-
-: .R ( n width -- )
-  SWAP 10 /MOD ( width rem quot )
-  ?DUP IF
-    ROT
-    1- 0 MAX
-    RECURSE
-    ABS .DIGIT
-  ELSE
-    ( width rem )
-    DUP 0< IF 2 ELSE 1 THEN
-    ( width rem actual-width )
-    ROT SWAP - ( rem width-diff )
-    SPACES
-    DUP 0< IF
-      [CHAR] - EMIT
-    THEN
-    ABS
-    .DIGIT
-  THEN
+  $F AND .DIGIT
 ;
 
 : .X 0 .R ;
 : . .X SPACE ;
-
-: ?.
-  DUP U.
-  DUP 0< IF
-    ." ("
-    .X
-    ." ) "
-  ELSE
-    DROP
-  THEN
-;
+: U. . ;
 
 : .S
   ." <"
-  DEPTH U.X
+  DEPTH .X
   ." > "
   DEPTH 0 ?DO
-    S0 I 1+ CELLS - @ ?.
-  LOOP
-  CR
-;
-
-: H.S
-  ." <$"
-  DEPTH H.X
-  ." > "
-  DEPTH 0 ?DO
-    ." $"
-    S0 I 1+ CELLS - @ H.
+    S0 I 1+ CELLS - @ .
   LOOP
   CR
 ;

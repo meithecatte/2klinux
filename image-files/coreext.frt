@@ -299,9 +299,10 @@ T{ MAX-INT MAX-INT MAX-INT WITHIN -> FALSE }T
 
 \ -----------------------------------------------------------------------------
 TESTING AGAIN   (contributed by James Bowman)
+( changed from mod 7 to mod 8 for 2klinux )
 
-T{ : AG0 701 BEGIN DUP 7 MOD 0= IF EXIT THEN 1+ AGAIN ; -> }T
-T{ AG0 -> 707 }T
+T{ : AG0 701 BEGIN DUP 7 AND 0= IF EXIT THEN 1+ AGAIN ; -> }T
+T{ AG0 -> 704 }T
 
 \ -----------------------------------------------------------------------------
 TESTING ?DO
@@ -453,33 +454,6 @@ T{  4 RN2 EXECUTE -> 33 22 11 0 }T
 T{ 25 RN2 EXECUTE -> 33 22 11 0 }T
 
 \ -----------------------------------------------------------------------------
-TESTING .R and U.R - has to handle different cell sizes
-
-\ Create some large integers just below/above MAX and Min INTs
-MAX-INT 73 79 */ CONSTANT LI1
-MIN-INT 71 73 */ CONSTANT LI2
-
-10 CONSTANT LENLI1
-
-: (.R&U.R)  ( u1 u2 -- )  \ u1 <= string length, u2 is required indentation
-   TUCK + >R
-   LI1 OVER SPACES  . CR R@    LI1 SWAP  .R CR
-   LI2 OVER SPACES  . CR R@ 1+ LI2 SWAP  .R CR
-   LI1 OVER SPACES U. CR R@    LI1 SWAP U.R CR
-   LI2 SWAP SPACES U. CR R>    LI2 SWAP U.R CR
-;
-
-: .R&U.R  ( -- )
-   CR ." You should see lines duplicated:" CR
-   ." indented by 0 spaces" CR 0      0 (.R&U.R) CR
-   ." indented by 0 spaces" CR LENLI1 0 (.R&U.R) CR \ Just fits required width
-   ." indented by 5 spaces" CR LENLI1 5 (.R&U.R) CR
-;
-
-CR CR ." Output from .R and U.R"
-T{ .R&U.R -> }T
-
-\ -----------------------------------------------------------------------------
 TESTING DEFER DEFER@ DEFER! IS ACTION-OF (Forth 2012)
 \ Adapted from the Forth 200X RfD tests
 
@@ -490,12 +464,12 @@ T{ : ACTION-DEFER1 ACTION-OF DEFER1 ; -> }T
 T{ : DEF! DEFER! ; -> }T
 T{ : DEF@ DEFER@ ; -> }T
 
-T{ ' * ' DEFER1 DEFER! -> }T
-T{ 2 3 DEFER1 -> 6 }T
-T{ ' DEFER1 DEFER@ -> ' * }T
-T{ ' DEFER1 DEF@ -> ' * }T
-T{ ACTION-OF DEFER1 -> ' * }T
-T{ ACTION-DEFER1 -> ' * }T
+T{ ' XOR ' DEFER1 DEFER! -> }T
+T{ 2 7 DEFER1 -> 5 }T
+T{ ' DEFER1 DEFER@ -> ' XOR }T
+T{ ' DEFER1 DEF@ -> ' XOR }T
+T{ ACTION-OF DEFER1 -> ' XOR }T
+T{ ACTION-DEFER1 -> ' XOR }T
 T{ ' + IS DEFER1 -> }T
 T{ 1 2 DEFER1 -> 3 }T
 T{ ' DEFER1 DEFER@ -> ' + }T
@@ -512,6 +486,3 @@ T{ ACTION-DEFER1 -> ' - }T
 T{ MY-DEFER DEFER2 -> }T
 T{ ' DUP IS DEFER2 -> }T
 T{ 1 DEFER2 -> 1 1 }T
-
-FORGET BITSSET?
-\ CONCLUDE" CPP.FRT"

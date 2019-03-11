@@ -700,52 +700,8 @@ link_SUB:
 	sub dword[esp], eax
 	jmp short doNEXT
 
-link_SMDIVREM:
-	dw $-link_SUB
-	db 6, 'SM/REM'
-	pop ecx
-	pop edx
-	pop eax
-	idiv ecx
-	push edx
-	push eax
-	jmp short doNEXT
-
-link_UMDIVMOD:
-	dw $-link_SMDIVREM
-	db 6, 'UM/MOD'
-	pop ecx
-	pop edx
-	pop eax
-	div ecx
-	push edx
-	push eax
-	jmp short doNEXT
-
-link_MMUL:
-	dw $-link_UMDIVMOD
-	db 2, 'M*'
-	pop ebx
-	pop eax
-	cdq
-	imul ebx
-	push eax
-	push edx
-	jmp short doNEXT
-
-link_UMMUL:
-	dw $-link_MMUL
-	db 3, 'UM*'
-	pop ebx
-	pop eax
-	xor edx, edx
-	mul ebx
-	push eax
-	push edx
-	jmp short doNEXT
-
 link_ZEQ:
-	dw $-link_UMMUL
+	dw $-link_SUB
 	db 2, '0='
 	pop ecx
 	xor eax, eax
@@ -754,13 +710,6 @@ link_ZEQ:
 	dec eax
 	push eax
 	jmp short doNEXT
-
-DOCOL:
-	mov [edi], esi
-	add edi, 4
-	pop esi
-doNEXT:
-	NEXT
 
 link_ULT:
 	dw $-link_ZEQ
@@ -814,28 +763,34 @@ link_RPFETCH:
 	dw $-link_RPSTORE
 	db 3, 'RP@'
 	push edi
-doNEXT2:
 	jmp short doNEXT
+
+DOCOL:
+	mov [edi], esi
+	add edi, 4
+	pop esi
+doNEXT:
+	NEXT
 
 link_SPSTORE:
 	dw $-link_RPFETCH
 	db 3, 'SP!'
 	pop esp
-	jmp short doNEXT2
+	jmp short doNEXT
 
 link_SPFETCH:
 	dw $-link_SPSTORE
 	db 3, 'SP@'
 	mov eax, esp
 	push eax
-	jmp short doNEXT2
+	jmp short doNEXT
 
 link_KEY:
 	dw $-link_SPFETCH
 	db 3, 'KEY'
 	call near doKEY
 	push eax
-	jmp short doNEXT2
+	jmp short doNEXT
 
 link_EMIT:
 	dw $-link_KEY
@@ -843,7 +798,7 @@ link_EMIT:
 	pop eax
 	call near CallRM
 	dw PrintChar
-	jmp short doNEXT2
+	jmp short doNEXT
 
 ; ( cluster -- )
 ; A thin wrapper around ReadCluster
@@ -855,8 +810,7 @@ link_LOAD:
 	call near CallRM
 	dw ReadCluster
 	popad
-doNEXT3:
-	jmp short doNEXT2
+	jmp short doNEXT
 
 ; ( name-pointer -- )
 ; A thin wrapper around FindFile
@@ -870,7 +824,7 @@ link_FILE:
 	dw FindFile
 	popad
 	xchg edi, eax
-	jmp short doNEXT3
+	jmp short doNEXT
 
 link_COLON:
 	dw $-link_FILE
