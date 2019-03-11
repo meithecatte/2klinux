@@ -561,34 +561,43 @@ PM_Entry:
 	mov ah, ForthMemoryStart >> 8
 	mov dword[ebp+dHERE], eax
 
-	mov ah, ForthR0 >> 8
-	xchg edi, eax
 	; fallthrough
 
 INTERPRET:
 	call near doWORD
 	mov ebx, eax
-	call near doFIND
-	or edx, edx
-	jz short .handle_number ; if the word isn't found, assume it's a number
 
-	add edx, 2
-	mov cl, [edx]
-	movzx eax, cl
-	and al, F_LENMASK
-	add edx, eax
-	inc edx
+	mov edx, [ebp+dLATEST]
+.find:
+	mov al, [edx+2]
+	and al, F_HIDDEN|F_LENMASK
+	cmp al, cl
+	jnz .next
 
-	xchg eax, edx
+	lea esi, [edx+3]
+	mov edi, ebx
+	push ecx
+	repe cmpsb
+	pop ecx
+	je short .found
+.next:
+	movzx eax, word[edx]
+	or eax, eax
+	jz short .handle_number
+	sub edx, eax
+	jmp short .find
+.found:
+	xchg eax, esi
 	mov ebx, [ebp+dSTATE]
 	or ebx, ebx
 	jz short .interpret ; if we're in interpreting mode, execute the word
 
-	and cl, F_IMMED
-	jz short .comma_next
+	test byte[edx+2], F_IMMED
+	jz short .comma_next ; not immediate, compile it
 
 .interpret:
 	mov esi, INTERPRET_LOOP
+	mov edi, ForthR0
 	jmp eax
 
 .interpret_number:
@@ -959,41 +968,6 @@ doWORD:
 	mov esi, EOFMessage
 	call near CallRM
 	dw Error
-
-; Input:
-;  ECX = name length
-;  EBX = name pointer
-; Output:
-;  EDX = word pointer, or 0 if not found
-doFIND:
-	push esi
-	push edi
-
-	mov edx, [ebp+dLATEST]
-.loop:
-	mov al, [edx+2]
-	and al, F_HIDDEN|F_LENMASK
-	cmp al, cl
-	jnz .next
-
-	lea esi, [edx+3]
-	mov edi, ebx
-	push ecx
-	repe cmpsb
-	pop ecx
-	je .found
-.next:
-	movzx eax, word[edx]
-	or eax, eax
-	jz short .notfound
-	sub edx, eax
-	jmp .loop
-.notfound:
-	xor edx, edx
-.found:
-	pop edi
-	pop esi
-	ret
 
 LATESTInitialValue EQU link_SEMICOLON
 
