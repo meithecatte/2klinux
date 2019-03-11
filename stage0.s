@@ -735,14 +735,13 @@ link_UMMUL:
 	push edx
 	jmp short doNEXT
 
-link_EQ:
+link_ZEQ:
 	dw $-link_UMMUL
-	db 1, '='
+	db 2, '0='
 	pop ecx
-	pop ebx
 	xor eax, eax
-	cmp ebx, ecx
-	setne al
+	or ecx, ecx
+	setnz al
 	dec eax
 	push eax
 	jmp short doNEXT
@@ -755,7 +754,7 @@ doNEXT:
 	NEXT
 
 link_ULT:
-	dw $-link_EQ
+	dw $-link_ZEQ
 	db 2, 'U<'
 	pop ecx
 	pop ebx
@@ -864,17 +863,8 @@ link_FILE:
 	xchg edi, eax
 	jmp short doNEXT3
 
-link_FIND:
-	dw $-link_FILE
-	db 4, 'FIND'
-	pop ecx
-	pop ebx
-	call near doFIND
-	push edx
-	jmp short doNEXT3
-
 link_COLON:
-	dw $-link_FIND
+	dw $-link_FILE
 	db 1, ':'
 COLON:
 	call near doWORD

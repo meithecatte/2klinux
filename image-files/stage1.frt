@@ -31,6 +31,8 @@
 : CHAR- 1- ;
 
 : DROP SP@ -4 - SP! ;
+: 2DROP SP@ -8 - SP! ;
+: 3DROP SP@ -12 - SP! ;
 : DUP SP@ @ ;
 : OVER SP@ CELL+ @ ;
 : R@ RP@ 8 - @ ;
@@ -46,6 +48,12 @@
   RP@ 4 - !
   RP@ -4 - RP!
 ;
+: RDROP
+  RP@ 4 - @
+  RP@ 8 - !
+  RP@ 4 - RP!
+;
+
 : NIP >R DROP R> ;
 : SWAP
   OVER >R
@@ -55,8 +63,6 @@
 : ROT >R SWAP R> SWAP ;
 : -ROT SWAP >R SWAP R> ;
 : TUCK SWAP OVER ;
-
-: RDROP R> R> DROP >R ;
 
 : 2DUP OVER OVER ;
 
@@ -97,14 +103,14 @@
 : ] TRUE STATE ! ;
 
 : INVERT NEGATE 1- ;
-: 0= 0 = ;
 : 0<> 0= INVERT ;
 : 0< $80000000 AND 0<> ;
 : 0>= 0< INVERT ;
 : 0<= DUP 0= >R 0< R> OR ;
 : 0> 0<= INVERT ;
 
-: <> = INVERT ;
+: = - 0= ;
+: <> - 0<> ;
 : < $80000000 + >R $80000000 + R> U< ;
 : > SWAP < ;
 : >= < INVERT ;
@@ -116,6 +122,8 @@
 
 : ALLOT HERE + HERE! ;
 : , HERE CELL ALLOT ! ;
+: C, HERE 1 ALLOT C! ;
+
 : COMPILE R> DUP @ , CELL+ >R ;
 
 : BRANCH R> @ >R ;
@@ -130,8 +138,6 @@
     KEY-NOEOF #CR =
   UNTIL
 ; IMMEDIATE
-
-: MUST-FIND FIND ;
 
 : WHILE \ ( ptr2-val -- ptr1-addr ptr2-val )
   COMPILE 0BRANCH
@@ -190,16 +196,12 @@ CHAR 2 EMIT
   + 1+           \ skip name-length bytes, plus one more for the flags byte itself
 ;
 
-: ' WORD MUST-FIND >CFA ;
-
-\ IF: compile a conditional branch and push the address of the destination pointer on the stack.
 : IF              \ ( -- ptr1-addr )
   COMPILE 0BRANCH
   HERE            \ save the address
   0 ,             \ compile a dummy ptr1
 ; IMMEDIATE
 
-\ ELSE: compile an unconditional branch and resolve the previous, conditional branch.
 : ELSE            \ ( ptr1-addr -- ptr2-addr )
   COMPILE BRANCH
   HERE >R         \ ( ptr1-addr ) ( R: ptr2-addr )
@@ -208,10 +210,60 @@ CHAR 2 EMIT
   R>
 ; IMMEDIATE
 
-\ THEN: resolve the previous branch.
 : THEN            \ ( ptr-addr -- )
   >R HERE R> !
 ; IMMEDIATE
+
+: H@ \ ( addr -- val )
+  DUP >R C@ R> 1+ C@
+  2* 2* 2* 2*
+  2* 2* 2* 2*
+  +
+;
+
+\ Drop the address that points to the routine we're exiting from.
+: EXIT RDROP ;
+
+: FOLLOW-LINK \ ( ptr -- ptr | 0 )
+  DUP H@ DUP 0= IF NIP EXIT THEN -
+;
+
+\ ?DUP is a useful word if you want to act on a value if it's non-zero. Compare:
+\ DUP IF ... ELSE DROP THEN
+\ ?DUP IF ... THEN
+: ?DUP DUP IF DUP THEN ;
+
+: S= \ ( c-addr1 u1 c-addr2 u2 -- true | false )
+  >R OVER R> <> IF 3DROP FALSE EXIT THEN
+  SWAP
+  BEGIN
+    ?DUP
+  WHILE
+    >R
+    OVER C@ OVER C@
+    <> IF 2DROP RDROP FALSE EXIT THEN
+    CHAR+ >R CHAR+ R>
+    R> 1-
+  REPEAT
+  2DROP TRUE
+;
+
+: FIND \ ( name u -- dict-ptr | 0 )
+  LATEST @ \ ( name u ptr )
+  BEGIN
+    >R 2DUP R@
+    2 +    \ ( name u name u ptr@len ) ( R: ptr )
+    DUP C@ [ F_HIDDEN F_LENMASK OR ] LITERAL AND \ ( name u name u ptr@len len ) ( R: ptr )
+    >R 1+ R> S= IF
+      2DROP R> EXIT
+    THEN
+    R> FOLLOW-LINK DUP 0=
+  UNTIL
+  3DROP 0
+;
+
+: MUST-FIND FIND DUP 0= IF 33 EMIT BEGIN AGAIN THEN ;
+: ' WORD MUST-FIND >CFA ;
 
 \ ---------- MAKING USE OF CONDITIONALS: EMIT ----------------------------------------------------
 
@@ -260,13 +312,6 @@ HIDE COMPILE
 : [']    '    POSTPONE LITERAL ; IMMEDIATE
 : [CHAR] CHAR POSTPONE LITERAL ; IMMEDIATE
 
-\ ---------- MAKING USE OF CONDITIONALS: ?DUP ----------------------------------------------------
-
-\ ?DUP is a useful word if you want to act on a value if it's non-zero. Compare:
-\ DUP IF ... ELSE DROP THEN
-\ ?DUP IF ... THEN
-: ?DUP DUP IF DUP THEN ;
-
 \ ---------- MAKING USE OF CONDITIONALS: S>D -----------------------------------------------------
 
 \ The way you extend a number to two cells depends on its sign:
@@ -284,9 +329,6 @@ HIDE COMPILE
 \ ---------- MAKING USE OF CONDITIONALS: ABS -----------------------------------------------------
 
 : ABS DUP 0< IF NEGATE THEN ;
-
-\ Drop the address that points to the routine we're exiting from.
-: EXIT RDROP ;
 
 \ ---------- MULTIPLICATION AND DIVISION ---------------------------------------------------------
 
@@ -374,8 +416,6 @@ SPACE CHAR L EMIT
   >R >R >R ( R: x y retaddr )
 ;
 
-: 2DROP ( a b -- ) DROP DROP ;
-
 : 2SWAP ( a b c d -- c d a b )
   >R    ( a b c R: d )
   -ROT  ( c a b R: d )
@@ -389,8 +429,6 @@ SPACE CHAR L EMIT
   2R>
   2SWAP
 ;
-
-: C, ( char -- ) HERE 1 ALLOT C! ;
 
 : WITHIN ( c a b -- within? )
   OVER   ( c a b a )
@@ -647,16 +685,6 @@ HIDE SOME-LOOP
 CHAR n EMIT
 ( ---------- STRING HANDLING ------------------------------------------------------------------- )
 
-: S=
-  2 PICK <> IF DROP 2DROP FALSE EXIT THEN
-  SWAP 0 ?DO
-    OVER C@ OVER C@
-    <> IF 2DROP UNLOOP FALSE EXIT THEN
-    CHAR+ SWAP CHAR+ SWAP
-  LOOP
-  2DROP TRUE EXIT
-;
-
 : SCASE 0 ; IMMEDIATE
 : SOF
   POSTPONE 2OVER
@@ -709,15 +737,6 @@ CHAR n EMIT
 ;
 
 ( ---------- MISCELLANEOUS --------------------------------------------------------------------- )
-: FOLLOW-LINK
-  DUP C@ OVER 1+ C@ 8 LSHIFT +
-  DUP 0= IF
-    CR ." FOLLOW-LINK: end of dictionary"
-    ABORT
-  THEN
-  -
-;
-
 : FORGET
   WORD MUST-FIND
   DUP HERE!
