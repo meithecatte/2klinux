@@ -350,9 +350,16 @@ PrintChar:
 ..@Return:
 	ret
 
+; Print a Pascal-style string.
+; Input:
+;  DS:SI -> the string
 PrintText:
 	lodsb
 	movzx cx, al
+; Print a string with the length passed in explicitly.
+; Input:
+;  DS:SI -> the string
+;  CX = length
 PrintTextLength:
 	lodsb
 	call near PrintChar
