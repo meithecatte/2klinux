@@ -3,6 +3,17 @@
 A Linux distribution that bootstraps from a 2 kilobyte binary (and a pile of source code), involving a filesystem driver
 that fits in 256 bytes and a C compiler written in the awesome language known as Forth.
 
+## Disappointment warning
+
+Current status: a Forth system that reads its source from FAT32, and chunks of
+a C preprocessor. After a while, I realized that the current approach is not
+ideal, because while booting from source code fully automatically makes for a
+nice demo, it doesn't have any introspective capabilities. I am considering
+redoing this project while optimizing for explainability and experimentation.
+In particular, [snaptoken-style](https://viewsourcecode.org/snaptoken/) literate
+programming would be nice. However, this is definitely not a short-term plan.
+Make sure to *watch* this repository on GitHub if you're interested.
+
 ## Testing
 
 You'll need:
