@@ -239,7 +239,7 @@ FindFile:
 	cmp al, byte[di]
 	jne short .nomatch
 	inc di
-	loop short .cmploop
+	loop .cmploop
 	popa
 
 ; We have a match! Set LENGTH and load the first cluster.
@@ -253,7 +253,7 @@ FindFile:
 	popa
 .next:
 	add si, DirEntrySize
-	loop short .loop
+	loop .loop
 ; Load next cluster of the directory and start from the beginning
 	push di
 	call near ReadNextCluster
@@ -356,7 +356,7 @@ PrintText:
 PrintTextLength:
 	lodsb
 	call near PrintChar
-	loop short PrintTextLength
+	loop PrintTextLength
 	ret
 
 StageZeroFilename:
